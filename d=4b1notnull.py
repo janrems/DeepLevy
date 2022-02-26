@@ -63,7 +63,7 @@ def _one_time_net (x, name ): #kle je del mreže za en čas
         x_norm = _batch_norm (x,name ='layer0_normal' )
         layer1 = _one_layer (x_norm , n_neuron [1] ,name ='layer1')
         layer2 = _one_layer (layer1 , n_neuron [2] ,name ='layer2')
-        z = _one_layer (layer2 , n_neuron [3] ,activation_fn =None , name ='final')
+        z = _one_layer (layer2 , n_neuron [3] ,activation_fn =None , name ='final') # output nima aktivacijske funkcije
     return z
         
 def _batch_norm (x , name ): # normalizacija za input in pa za outpute na skritih layerjih
@@ -86,13 +86,13 @@ def _batch_norm (x , name ): # normalizacija za input in pa za outpute na skriti
         y . set_shape ( x . get_shape ())
     return y
 
-
+#tole je loop
 with tf . Session () as sess :
-  dW = tf . random_normal ( shape =[batch_size,d] ,stddev = 1 , dtype = tf . float64 )
+  dW = tf . random_normal ( shape =[batch_size,d] ,stddev = 1 , dtype = tf . float64 )#30x1 st.nor.
   X0= tf. Variable (tf. random_uniform ([N_delta, batch_size ,d],
-                                           minval =-1,maxval =1 ,dtype =tf. float64 ), name='X0' )
+                                           minval =-1,maxval =1 ,dtype =tf. float64 ), name='X0' ) #X deltax30x1, to se uci
   XI= tf. Variable (tf. random_uniform ([N_t2, batch_size ,d],
-                                           minval =-1,maxval =1 ,dtype =tf. float64 ), trainable = False , name='XI' )
+                                           minval =-1,maxval =1 ,dtype =tf. float64 ), trainable = False , name='XI' ) #X od delta daljex30x1 tega se ne uci
   f1 = tf . Variable ( tf . random_uniform ([d] ,minval =-1.2 , maxval =-0.5 , dtype = tf . float64 ) ,name = 'f1' )
 
   allones = tf . ones ( shape =[ batch_size , d] , dtype = tf . float64 ,
@@ -100,7 +100,7 @@ with tf . Session () as sess :
   f0 = allones * f1
   with tf . variable_scope ( 'forward',reuse=tf.compat.v1.AUTO_REUSE ):
     for i in range(0,N_delta):
-      X0[i, :, :].assign(_one_time_net (X0[i, :, :] ,str (i+1)+"X0"))
+      X0[i, :, :].assign(_one_time_net (X0[i, :, :] ,str (i+1)+"X0")) #kle je mal cudno da i-to mesto updateas z
     X=tf.concat([X0, XI], 0)    
     for i in range (0, N_t2):
       dr2= b2*(tf.reduce_mean(X[N_delta+i-1,:,:],axis=0))*dt 
@@ -141,7 +141,7 @@ with tf . Session () as sess :
   loss2=10000000
   diff=np.abs(loss2-loss0)
   try :
-    while (diff > 0.000003) :
+    while (diff > 0.000003) : #dokler je sprememba v izgubi večja kot tok
       step = sess . run (global_step)
       XI=sess.run(X)
       steps . append ( step )
@@ -180,11 +180,16 @@ for j in range(10):
 plt.grid(True)
 plt.figure()
 plt.plot(t1[0:-1],Xl[1:N_delta,1,0])
+plt.title("dX")
 plt.grid(True)
 plt.figure()
 n= np.arange(i)
 plt.plot(n,losses)
 plt.grid(True)        
+plt.show()
+
+####### TO JE MOJE
+plt.plot(t,Xl[:,10,0])
 plt.show()
 
 
