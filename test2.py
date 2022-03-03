@@ -1,3 +1,9 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[ ]:
+
+
 import time, datetime
 import tensorflow.compat.v1 as tf
 
@@ -8,7 +14,6 @@ import matplotlib.pyplot as plt
 # get_ipython().run_line_magic('matplotlib', 'inline')
 import tensorflow_probability as tfp
 from tensorflow.python.training import moving_averages
-
 
 start_time = time.time()
 tf.get_default_graph()
@@ -22,20 +27,20 @@ n_neuron = [d, d + 2, d + 2, d]  # d je dimenzija inputa, torej mamo kle situaci
 print(batch_size)
 G = 10
 T = 1  ##temps d'exercice (en année)
-dt = 0.05  #
+dt = 0.005  #
 sqrdt = np.sqrt(dt)
 b = tf.ones(shape=[d, d], dtype=tf.float64, name='MatrixOfOnes')
-b1 = 0.3  # b*6 + np.random.randn(d,d)
-#b2 = 0.5  # b*0.5+np.random.randn(d,d)
+b1 = 6  # b*6 + np.random.randn(d,d)
+b2 = 0.5  # b*0.5+np.random.randn(d,d)
 delta = 0.1
 t1 = np.arange(0, delta, dt)
 N_delta = len(t1)
-t2 = np.arange(delta, T, dt)
+#t2 = np.arange(delta, T, dt)
+t2 = t1
 N_t2 = len(t2)
 t = np.concatenate((t1, t2))  # time length
 N_time = len(t)
 sigma = 0.5  # coefficient de diffusion (la volatilité du marché)
-x0 = 1 # initial value
 K = 0.5  # prix díexercice
 loss0 = 0
 print(N_time)
@@ -91,24 +96,36 @@ def _batch_norm(x, name):  # normalizacija za input in pa za outpute na skritih 
 
 # tole je loop
 with tf.Session() as sess:
-    dW = tf.random_normal(shape=[N_time, batch_size, d], stddev=1, dtype=tf.float64)  # 200x30x1 st.nor.
-    U0 = tf.Variable(x0*np.ones((N_time-1,batch_size,d)), name='U0')  # to je naš control
-    XI = tf.Variable(x0*np.ones((N_time,batch_size,d)), trainable= False,
-                     name='XI')  # X inicializiran z x0
+    dW = tf.random_normal(shape=[N_t2,batch_size, d], stddev=1, dtype=tf.float64)  # 30x1 st.nor.
+    X0 = tf.Variable(tf.random_uniform([N_delta, batch_size, d],
+                                       minval=-1, maxval=1, dtype=tf.float64), name='X0')  # X deltax30x1, to se uci
+    XI = tf.Variable(tf.random_uniform([N_t2, batch_size, d],
+                                       minval=-1, maxval=1, dtype=tf.float64), trainable=False,
+                     name='XI')  # X od delta daljex30x1 tega se ne uci
     f1 = tf.Variable(tf.random_uniform([d], minval=-1.2, maxval=-0.5, dtype=tf.float64), name='f1')
 
     allones = tf.ones(shape=[batch_size, d], dtype=tf.float64,
                       name='MatrixOfOnes')
     f0 = allones * f1
     with tf.variable_scope('forward', reuse=tf.compat.v1.AUTO_REUSE):
-        for i in range(0, N_time-1):
-            U0[i, :, :].assign(_one_time_net(XI[i, :, :], str(i + 1) + "U0"))  #predict control from the state
-            XI[i+1,:,:].assign(XI[i,:,:] + U0[i,:,:]*XI[i,:,:]*b1*dt + U0[i,:,:]*XI[i,:,:]*sigma*sqrdt*dW[i,:,:])
-
-
+        for i in range(0, N_delta-1):
+            X0[i+1, :, :].assign(
+                _one_time_net(XI[i, :, :], str(i + 1) + "X0"))  # kle je mal cudno da i-to mesto updateas z
+        X = tf.concat([X0, XI], 0)
+        for i in range(0, N_t2):
+            dr2 = b2 * (tf.reduce_mean(X[N_delta + i - 1, :, :], axis=0)) * dt
+            for j in range(0, batch_size):
+                XI[i, j, :].assign(b1 * X[i, j, :] * dt + dr2 + sqrdt * sigma * dW[i,j, :])
+            #dW = tf.random_normal(shape=[batch_size, d], stddev=1, dtype=tf.float64)
+        X = tf.concat([X0, XI], 0)
+        integration1 = 0.5 * tf.reduce_sum(tf.multiply(X[0, :, :], X[0, :, :]), 1)  # ???????????????
+        integration2 = tfp.math.trapz(0.5 * tf.reduce_sum(tf.multiply(X[0:N_delta, :, :], X[0:N_delta, :, :]), 2),
+                                      axis=0)
+        integration3 = tfp.math.trapz(
+            tf.reduce_mean(tf.reduce_sum(tf.multiply(X[N_delta:N_time, :, :], X[N_delta:N_time, :, :]),
+                                         2), axis=1), axis=0)
         # Cost function
-
-
+        #J = integration2 + integration1 + K * tf.reduce_sum(tf.multiply(X[-1, :, :] - G, X[-1, :, :] - G), 1)
         J = - tf.math.log(tf.norm(XI[-1,:,:], axis= 1))
         loss = tf.reduce_mean(J)
 
@@ -118,7 +135,6 @@ with tf.Session() as sess:
         learning_rate = tf.train.exponential_decay(1.0, global_step, decay_steps=200, decay_rate=0.5, staircase=True)
         # Returns all variables created with trainable=True
         trainable_variables = tf.trainable_variables()
-        print(trainable_variables)
         grads = tf.gradients(loss, trainable_variables)
         # Define an optimizer using tensorflow
         optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
@@ -140,7 +156,7 @@ with tf.Session() as sess:
     try:
         while (diff > 0.000003):  # dokler je sprememba v izgubi večja kot tok
             step = sess.run(global_step)
-            XI = sess.run(XI)
+            XI = sess.run(X)
             steps.append(step)
             currentLoss, currentLearningRate = sess.run([train_op_2, learning_rate])
             losses.append(currentLoss)
@@ -159,25 +175,20 @@ with tf.Session() as sess:
                       "learning rate :", currentLearningRate)
                 # merged = tf.summary.merge_all()
                 # writer = tf.summary.FileWriter("maroua",sess.graph)
-        Xl = np.array(XI.eval())
-        Ul = np.array(U0.eval())
+        Xl = np.array(X.eval())
         end_time = time.time()
         # print ( "running time :" , end_time - start_time )
         # print("\nintegr1 :",sess.run(integration1))
         # print("\nintegr2 :",sess.run(integration2))
-      # print("\nJ :", sess.run(J))
-        # print("\n        # print("\nintegr3 :",sess.run(integration3))
-        #   loss1 :",sess.run(loss1))
+        # print("\nintegr3 :",sess.run(integration3))
+        # print("\nJ :", sess.run(J))
+        # print("\nloss1 :",sess.run(loss1))
     except KeyboardInterrupt:
         print("manually disengaged")
 print("\n,N_delta:", N_delta)
 print("\n,iii:", i)
 print("\n,diff:", diff)
-print("\n,U0:", U0[:, 1, 0])
-
-
-
-
+print("\n,X0:", Xl[0:N_delta, 1, 0])
 for j in range(10):
     plt.plot(t1[0:-1], Xl[1:N_delta, j, 0])
 plt.grid(True)
@@ -186,7 +197,6 @@ plt.plot(t1[0:-1], Xl[1:N_delta, 1, 0])
 plt.title("dX")
 plt.grid(True)
 plt.figure()
-plt.show()
 n = np.arange(i)
 plt.plot(n, losses)
 plt.grid(True)
@@ -196,4 +206,32 @@ plt.show()
 plt.plot(t, Xl[:, 10, 0])
 plt.show()
 
+# In[ ]:
+
+
+import time, datetime
+import tensorflow.compat.v1 as tf
+
+tf.disable_v2_behavior()
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+get_ipython().run_line_magic('matplotlib', 'inline')
+import tensorflow_probability as tfp
+from tensorflow.python.training import moving_averages
+
+start_time = time.time()
+tf.get_default_graph()
+d = 4
+b = tf.ones(shape=[d, d], dtype=tf.float64, name='MatrixOfOnes')
+b1 = b * 6 + np.random.randn(d, d)
+b2 = b * 0.5 + np.random.randn(d, d)
+f1 = tf.Variable(tf.random_uniform([d], minval=-1.2, maxval=-0.5, dtype=tf.float64), name='f1')
+
+allones = tf.ones(shape=[30, d], dtype=tf.float64, name='MatrixOfOnes')
+f0 = allones * -1
+with tf.Session() as sess:
+    sess.run(tf.global_variables_initializer())
+    print(f0.eval())
 
