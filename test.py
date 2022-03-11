@@ -93,7 +93,7 @@ def _batch_norm(x, name):  # normalizacija za input in pa za outpute na skritih 
 with tf.Session() as sess:
     dW = tf.random_normal(shape=[N_time, batch_size, d], stddev=1, dtype=tf.float64)  # 200x30x1 st.nor.
     U0 = tf.Variable(x0*np.ones((N_time-1,batch_size,d)), name='U0')  # to je naš control
-    XI = tf.Variable(x0*np.ones((N_time,batch_size,d)), trainable= False,
+    XI = tf.Variable(x0*np.ones((N_time,batch_size,d)), trainable= True,
                      name='XI')  # X inicializiran z x0
     f1 = tf.Variable(tf.random_uniform([d], minval=-1.2, maxval=-0.5, dtype=tf.float64), name='f1')
 
@@ -110,7 +110,7 @@ with tf.Session() as sess:
 
 
         J = - tf.math.log(tf.norm(XI[-1,:,:], axis= 1))
-        loss = tf.reduce_mean(J)
+        loss = tf.reduce_mean(J) - 1
 
         # training operations
         global_step = tf.get_variable('global_step', [], initializer=tf.constant_initializer(0), trainable=False,
@@ -140,7 +140,7 @@ with tf.Session() as sess:
     try:
         while (diff > 0.000003):  # dokler je sprememba v izgubi večja kot tok
             step = sess.run(global_step)
-            XI = sess.run(XI)
+            X = sess.run(XI)
             steps.append(step)
             currentLoss, currentLearningRate = sess.run([train_op_2, learning_rate])
             losses.append(currentLoss)
