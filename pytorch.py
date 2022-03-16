@@ -78,14 +78,12 @@ for epoch in range(10):
     hc = net.init_hidden()
     x = net.init_state()
     w = net.init_brownian()
-    with torch.autograd.set_detect_anomaly(True):
+    net.zero_grad()
+    control, state = net(x, w, hc)
 
-        net.zero_grad()
-        control, state = net(x, w, hc)
-
-        loss = loss1(state)
-        loss.backward()
-        optimizer.step()
+    loss = loss1(state)
+    loss.backward()
+    optimizer.step()
 
     losses.append(loss)
 
