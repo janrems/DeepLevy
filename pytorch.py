@@ -40,13 +40,13 @@ class ControlLSTM(nn.ModuleList):
         # for every timestep use input x[t] to compute control out from hiden state h1 and derive the next imput x[t+1]
         for t in range(self.sequence_len):
             # get the hidden and cell states from the first layer cell
-            hc_1 = self.lstm_1(x[t,:,:], hc_1)
+            hc_1 = self.lstm_1(x, hc_1)
             # unpack the hidden and the cell states from the first layer
             h_1, c_1 = hc_1
             out = self.fc(h_1)
             output_seq[t] = out
             if t < self.sequence_len - 1:
-                x[t+1,:,:] += x[t,:,:] * out * drift * dt + x[t,:,:]* out * volatility *sqrdt * w[t]
+                x = x + x * out * drift * dt + x * out * volatility * sqrdt * w[t]
         # return the output and state sequence
         return output_seq, x
 
@@ -60,12 +60,12 @@ class ControlLSTM(nn.ModuleList):
         return torch.randn(self.sequence_len, self.batch_size, self.dimension)
 
     def init_state(self):
-        return torch.ones(self.sequence_len, self.batch_size, self.dimension)
+        return torch.zeros(self.batch_size, self.dimension)
 
 #Custom loss function motivated by the log return at terminal time
 # loss of the form -E[ln(|X_T|^2)]
 def loss1(input):
-    return - torch.mean(torch.log(torch.norm(input[-1,:,:], dim=1)))
+    return - torch.mean(torch.log(torch.norm(input, dim=0)))
 
 net = ControlLSTM(sequence_len=sequence_len, dimension=1, hidden_dim=512, batch_size=30)
 optimizer = optim.Adam(net.parameters(), lr=0.001)
@@ -75,6 +75,7 @@ losses = []
 controls = []
 
 for epoch in range(10):
+    print(f"Epoch{epoch}")
     hc = net.init_hidden()
     x = net.init_state()
     w = net.init_brownian()
