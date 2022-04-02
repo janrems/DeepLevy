@@ -60,7 +60,7 @@ class ControlLSTM(nn.ModuleList):
         return torch.randn(self.sequence_len, self.batch_size, self.dimension)
 
     def init_state(self):
-        return torch.zeros(self.batch_size, self.dimension)
+        return torch.ones(self.batch_size, self.dimension)
 
 #Custom loss function motivated by the log return at terminal time
 # loss of the form -E[ln(|X_T|^2)]
@@ -75,7 +75,7 @@ losses = []
 controls = []
 
 for epoch in range(10):
-    print(f"Epoch{epoch}")
+    print(f"Epoch {epoch}")
     hc = net.init_hidden()
     x = net.init_state()
     w = net.init_brownian()
