@@ -14,6 +14,8 @@ t1=np.arange(0,T,dt)
 sqrdt = np.sqrt(dt)
 drift = 0.05
 volatility = 0.3
+gamma = 0.1
+rate = 10
 
 class ControlLSTM(nn.ModuleList):
     def __init__(self, sequence_len, dimension, hidden_dim, batch_size):
@@ -31,7 +33,7 @@ class ControlLSTM(nn.ModuleList):
         self.fc = nn.Linear(in_features=hidden_dim, out_features=dimension)
         self.activation = nn.Sigmoid()
 
-    def forward(self, x, w, hc):
+    def forward(self, x, w,j, hc):
         # empty tensor for the output of the lstm, this is the contol
         output_seq = torch.empty((self.sequence_len,
                                   self.batch_size,
@@ -54,7 +56,7 @@ class ControlLSTM(nn.ModuleList):
             input_seq[t] = x
             output_seq[t] = out
             if t < self.sequence_len - 1:
-                x = x + x * out * drift * dt + x * out * volatility * sqrdt * w[t]
+                x = x + x * out * drift * dt + x * out * volatility * sqrdt * w[t] + x*out*gamma*j[i]
         # return the output and state sequence
         return output_seq, x, input_seq
 
@@ -69,6 +71,11 @@ class ControlLSTM(nn.ModuleList):
 
     def init_state(self):
         return torch.ones(self.batch_size, self.dimension)
+
+    def init_jump(self):
+        rates = torch.ones(self.batch_size,self.dimension)*rate #popravit za višje dim
+        N = torch.poisson(rates)
+        U = torch.rand()
 
 #Custom loss function motivated by the log return at terminal time
 # loss of the form -E[ln(|X_T|^2)]
@@ -114,10 +121,9 @@ plt.plot(t1,controls[25])
 plt.plot(t1,controls[10])
 plt.plot(t1,controls[20])
 plt.plot(t1,controls[19])
-plt.plot(t1,controls[12])
+plt.plot(t1,controls[15])
 plt.plot(t1,controls[-1])
 plt.show()
-
 
 epochs = np.arange(0,epochs_number,1)
 plt.plot(epochs, states)
@@ -136,17 +142,3 @@ plt.show()
 
 plt.plot(t1, sm.detach().numpy())
 plt.show()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
