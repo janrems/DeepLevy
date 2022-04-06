@@ -74,13 +74,26 @@ for i in range(n-1):
 plt.plot(t,s)
 plt.show()
 
+sl = 30
+bs = 1000
+dim = 5
+dt = 1/sl
+
+tj = torch.zeros(sl,bs,dim)
 
 
 
 
 
+for bn in range(bs):
+    for dn in range(dim):
+        cum_time = np.random.exponential(1/rates[dn])
+        while(cum_time < T):
+            indx = int(cum_time/dt)
+            jumpsize = 1 - (2 * np.random.randint(2))  # enakomerno -1,1
+            tj[indx,bn, dn] += jumpsize
 
-
+            cum_time += np.random.exponential(1/rates[dn])
 
 
 

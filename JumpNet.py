@@ -15,7 +15,8 @@ sqrdt = np.sqrt(dt)
 drift = 0.05
 volatility = 0.3
 gamma = 0.1
-rate = 10
+rates = [10.0]
+dim = len(rates)
 
 class ControlLSTM(nn.ModuleList):
     def __init__(self, sequence_len, dimension, hidden_dim, batch_size):
@@ -33,7 +34,7 @@ class ControlLSTM(nn.ModuleList):
         self.fc = nn.Linear(in_features=hidden_dim, out_features=dimension)
         self.activation = nn.Sigmoid()
 
-    def forward(self, x, w,j, hc):
+    def forward(self, x, w,tj, hc):
         # empty tensor for the output of the lstm, this is the contol
         output_seq = torch.empty((self.sequence_len,
                                   self.batch_size,
@@ -53,10 +54,11 @@ class ControlLSTM(nn.ModuleList):
             h_1, c_1 = hc_1
             out = self.fc(h_1)
             #out = self.activation(out)
-            input_seq[t] = x
+
             output_seq[t] = out
             if t < self.sequence_len - 1:
-                x = x + x * out * drift * dt + x * out * volatility * sqrdt * w[t] + x*out*gamma*j[i]
+                x = x + x * out * drift * dt + x * out * volatility * sqrdt * w[t] + x*out*gamma* tj[t]
+            input_seq[t] = x
         # return the output and state sequence
         return output_seq, x, input_seq
 
@@ -72,17 +74,28 @@ class ControlLSTM(nn.ModuleList):
     def init_state(self):
         return torch.ones(self.batch_size, self.dimension)
 
-    def init_jump(self):
-        rates = torch.ones(self.batch_size,self.dimension)*rate #popravit za višje dim
-        N = torch.poisson(rates)
-        U = torch.rand()
+    def init_jumpTimes(self):
+        tj = torch.zeros(self.sequence_len, self.batch_size, self.dimension)
+
+        for bn in range(self.batch_size):
+            for dn in range(self.dimension):
+                cum_time = np.random.exponential(1 / rates[dn])
+                while (cum_time < T):
+                    indx = int(cum_time / dt)
+                    jumpsize = 1 - (2 * np.random.randint(2))  # enakomerno -1,1
+                    tj[indx, bn, dn] += jumpsize
+
+                    cum_time += np.random.exponential(1 / rates[dn])
+
+        return tj
+
 
 #Custom loss function motivated by the log return at terminal time
 # loss of the form -E[ln(|X_T|^2)]
 def loss1(input):
     return - torch.mean(torch.log(torch.norm(input, dim=1)))
 
-net = ControlLSTM(sequence_len=sequence_len, dimension=1, hidden_dim=512, batch_size=1000)
+net = ControlLSTM(sequence_len=sequence_len, dimension=dim, hidden_dim=512, batch_size=100)
 optimizer = optim.Adam(net.parameters(), lr=0.0005)
 
 #Training loop
@@ -98,8 +111,9 @@ for epoch in range(epochs_number):
     hc = net.init_hidden()
     x = net.init_state()
     w = net.init_brownian()
+    tj = net.init_jumpTimes()
     net.zero_grad()
-    control, state, state_seq = net(x, w, hc)
+    control, state, state_seq = net(x, w, tj, hc)
 
     loss = loss1(state)
     loss.backward()
@@ -136,9 +150,5 @@ plt.show()
 plt.plot(epochs, losses)
 plt.show()
 
-
-plt.plot(t1,ss[:,2].detach().numpy())
-plt.show()
-
-plt.plot(t1, sm.detach().numpy())
+plt.plot(t1,state_seq[:,0,0].detach().numpy())
 plt.show()
