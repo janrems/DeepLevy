@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 import matplotlib.pyplot as plt
+import time
 
 torch.manual_seed(1)
 
@@ -15,9 +16,18 @@ sqrdt = np.sqrt(dt)
 drift = -0.1
 volatility = 0.3
 gamma = 0.2
-jump_switch = True
+jump_switch = False
 rates = [10.0]
 dim = len(rates)
+batch_size = 50
+
+if jump_switch:
+    coef = [gamma*volatility**2, rates[0]*gamma**2-drift*gamma+volatility**2, -drift]
+    roots = np.roots(coef).tolist()
+    opt_control = min(roots, key=abs)
+else:
+    opt_control = drift/volatility**2
+##################################################################################
 
 class ControlLSTM(nn.ModuleList):
     def __init__(self, sequence_len, dimension, hidden_dim, batch_size):
@@ -98,7 +108,10 @@ class ControlLSTM(nn.ModuleList):
 def loss1(input):
     return - torch.mean(torch.log(torch.norm(input, dim=1)))
 
-net = ControlLSTM(sequence_len=sequence_len, dimension=dim, hidden_dim=512, batch_size=1000)
+
+##################################################################################
+
+net = ControlLSTM(sequence_len=sequence_len, dimension=dim, hidden_dim=512, batch_size=batch_size)
 optimizer = optim.Adam(net.parameters(), lr=0.0005)
 
 #Training loop
@@ -107,8 +120,9 @@ controls = []
 states = []
 state_seqs = []
 
-epochs_number = 30
+epochs_number = 200
 
+start = time.time()
 for epoch in range(epochs_number):
     print(f"Epoch {epoch}")
     hc = net.init_hidden()
@@ -127,44 +141,7 @@ for epoch in range(epochs_number):
     states.append(torch.mean(state[:,0]).detach().cpu().numpy())
     state_seqs.append(torch.mean(state_seq[:,:,0], 1).detach().cpu().numpy())
 
-
-
-net = ControlLSTM(sequence_len=sequence_len, dimension=dim, hidden_dim=512, batch_size=1000)
-optimizer = optim.Adam(net.parameters(), lr=0.0005)
-
-#Training loop
-losses = []
-controls = []
-states = []
-state_seqs = []
-
-e_numbers = 0
-condition = 1
-previous = torch.ones(sequence_len)*10
-while(condition>0.005):
-    #print(f"Epoch {epoch}")
-    hc = net.init_hidden()
-    x = net.init_state()
-    w = net.init_brownian()
-    tj = net.init_jumpTimes()
-    net.zero_grad()
-    control, state, state_seq = net(x, w, tj, hc)
-
-    loss = loss1(state)
-    loss.backward()
-    optimizer.step()
-
-    losses.append(loss.detach().cpu().numpy())
-    controls.append(torch.mean(control[:,:,0], 1).detach().cpu().numpy())
-    states.append(torch.mean(state[:,0]).detach().cpu().numpy())
-    state_seqs.append(torch.mean(state_seq[:,:,0], 1).detach().cpu().numpy())
-
-    new = torch.mean(control[:,:,0], 1)
-    condition = torch.norm(new-previous)
-    previous = new
-    e_numbers += 1
-    print(e_numbers)
-
+end= time.time()
 
 
 
@@ -182,15 +159,21 @@ plt.plot(t1,controls[int(epochs_number*2/5)],"lightblue")
 plt.plot(t1,controls[int(epochs_number*3/5)], "silver")
 plt.plot(t1,controls[int(epochs_number*4/5)], "dimgray")
 plt.plot(t1,controls[-1],"black")
+plt.axhline(y=opt_control, color='r', linestyle='-')
+plt.title("drift = " + str(drift) + ", volatility = "+ str(volatility) + ", epochs = "+ str(epochs_number) + ", batchsize = " + str(batch_size) + ", time = "+ str(int(end-start)))
 plt.show()
+
+plt.plot(t1,control[:,10,0].detach().numpy(),"black")
+plt.title("sdsad")
+plt.show()
+
 
 plt.plot(t1, state_seq[:,3,0].detach().cpu().numpy())
 plt.show()
 
 plt.plot(t1,controls[-5],"azure")
 plt.plot(t1,controls[-4],"lightblue")
-plt.plot(t1,controls[-3], "silver")
-plt.plot(t1,controls[-2], "dimgray")
+plt.plot(t1,controls[-3], "silver"); plt.plot(t1,controls[-2], "dimgray")
 plt.plot(t1,controls[-1],"black")
 plt.show()
 
@@ -212,4 +195,44 @@ plt.show()
 a2 = volatility**2*gamma
 a1 = gamm**2 - drift*gamma + volatility**2
 a0 = - drift
+
+
+##################################################################################
+
+# net = ControlLSTM(sequence_len=sequence_len, dimension=dim, hidden_dim=512, batch_size=1000)
+# optimizer = optim.Adam(net.parameters(), lr=0.0005)
+#
+# #Training loop
+# losses = []
+# controls = []
+# states = []
+# state_seqs = []
+#
+# e_numbers = 0
+# condition = 1
+# previous = torch.ones(sequence_len)*10
+# while(condition>0.005):
+#     #print(f"Epoch {epoch}")
+#     hc = net.init_hidden()
+#     x = net.init_state()
+#     w = net.init_brownian()
+#     tj = net.init_jumpTimes()
+#     net.zero_grad()
+#     control, state, state_seq = net(x, w, tj, hc)
+#
+#     loss = loss1(state)
+#     loss.backward()
+#     optimizer.step()
+#
+#     losses.append(loss.detach().cpu().numpy())
+#     controls.append(torch.mean(control[:,:,0], 1).detach().cpu().numpy())
+#     states.append(torch.mean(state[:,0]).detach().cpu().numpy())
+#     state_seqs.append(torch.mean(state_seq[:,:,0], 1).detach().cpu().numpy())
+#
+#     new = torch.mean(control[:,:,0], 1)
+#     condition = torch.norm(new-previous)
+#     previous = new
+#     e_numbers += 1
+#     print(e_numbers)
+
 
