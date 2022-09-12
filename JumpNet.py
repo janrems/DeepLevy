@@ -29,7 +29,8 @@ drift = 0.1
 volatility = 0.3
 gamma = 0.2
 
-jump_switch = True #Here you tell if you want the SDE to have jumps
+jump_switch = False #Here you tell if you want the SDE to have jumps
+constant = False
 
 rates = [10.0] #rate of the jump process
 dim = len(rates) #dimension of the SDE, FOR NOW CODE ONLY WORKS FOR DIMENSION 1 !!!!
@@ -48,7 +49,10 @@ if jump_switch:
     opt_control = min(roots, key=abs)
 
 else:
-    opt_control = drift/volatility**2
+    if constant:
+        opt_control = drift/volatility**2
+    else:
+        opt_control = drift*t1/volatility**2
 
 ##################################################################################
 #Here we define our network. For the network scheme look at the picture (I will ad a cketch of the network cheme to the Git repository)
@@ -104,7 +108,10 @@ class ControlLSTM(nn.ModuleList):
 
             output_seq[t] = out #add output at time t to the output sequence
             if t < self.sequence_len - 1: #using the output/control compute the wealth at next timestep
-                x = x + x * out * drift * dt + x * out * volatility * sqrdt * w[t] + x*out*gamma* tj[t]
+                if constant:
+                    x = x + x * out * drift * dt + x * out * volatility * sqrdt * w[t] + x*out*gamma* tj[t]
+                else:
+                    x = x + x * out * drift *t* dt + x * out * volatility * sqrdt * w[t] + x * out * gamma * tj[t]
             input_seq[t] = x #add wealth to wealth sequence
 
         # return the output sequence, terminal wealth and wealth sequence
@@ -167,7 +174,7 @@ states = [] #terminal welth
 state_seqs = [] #the whole wealth sequence
 
 #Number of epochs/learning steps
-epochs_number = 50
+epochs_number = 3000
 
 start = time.time() #Used to monitor the time needed
 
@@ -208,6 +215,7 @@ end= time.time()
 
 #Here we plot loss over the epochs (Remember -loss is exactly the expected log return at the terminal time)
 epochs = np.arange(0,epochs_number,1)
+epochs = np.arange(0,7000,1)
 plt.plot(epochs, losses)
 plt.title("drift = " + str(drift) + ", vol = "+ str(volatility) + ", gamma = " + str(gamma) + ", epochs = "+ str(epochs_number) + ", batchsize = " + str(batch_size) + ", time = "+ str(int(end-start))+"s",fontsize= 10)
 #plt.savefig(path + "loss"+ "d" +str(drift)+"v"+str(volatility)+"g"+str(gamma)+"e"+str(epochs_number)+"b"+str(batch_size)+".jpg")
@@ -226,6 +234,17 @@ plt.title("drift = " + str(drift) + ", vol = "+ str(volatility) + ", gamma = " +
 #plt.savefig(path + "control"+ "d" +str(drift)+"v"+str(volatility) + "g"+ str(gamma)+"e" + str(200)+"b"+str(batch_size) + ", hd = " + str(hidden_dim)+".jpg")
 plt.show()
 
+plt.plot(t1,controls[0],"palegreen")
+plt.plot(t1,controls[int(epochs_number/5)],"azure")
+plt.plot(t1,controls[int(epochs_number*2/5)],"lightblue")
+plt.plot(t1,controls[int(epochs_number*3/5)], "silver")
+plt.plot(t1,controls[int(epochs_number*4/5)], "dimgray")
+plt.plot(t1,controls[-1],"black")
+plt.plot(t1, opt_control, color='r', linestyle='-')
+plt.title("drift = " + str(drift) + ", vol = "+ str(volatility) + ", gamma = " + str(gamma) + ", ep = "+ str(epochs_number) + ", bs = " + str(batch_size) + ", t = "+ str(int(end-start))+"s" + ", hd = " + str(hidden_dim),fontsize= 10)
+#plt.savefig(path + "control"+ "d" +str(drift)+"v"+str(volatility) + "g"+ str(gamma)+"e" + str(200)+"b"+str(batch_size) + ", hd = " + str(hidden_dim)+".jpg")
+plt.show()
+
 
 #Here we plot a control process at the last epoch, sampled uniformly from the batch
 i =np.random.randint(1000)
@@ -239,5 +258,12 @@ plt.plot(t1, state_seq[:,1,0].detach().cpu().numpy())
 plt.show()
 
 
-
+i =np.random.randint(1000)
+#opt = max(stock_seq[-1,i,0].detach().cpu().numpy()-F,0)
+plt.plot(t1,control[:,i,0].detach().numpy(),"black")
+plt.plot(t1, state_seq[:,i,0].detach().cpu().numpy(), "blue")
+#plt.plot(t1, stock_seq[:,i,0].detach().cpu().numpy())
+plt.plot(t1, opt_control, color='r', linestyle='-')
+plt.title("sdsad")
+plt.show()
 

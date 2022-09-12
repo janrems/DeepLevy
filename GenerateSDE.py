@@ -143,12 +143,66 @@ for bn in range(bs):
 
 
 
+def init_brownian():
+    return torch.randn(sequence_len, batch_size, dimension)
+
+
+w = init_brownian()
+
+
+output_seq = torch.empty((sequence_len,
+                          batch_size,
+                          dimension))
+
+input_seq = torch.empty((sequence_len,
+                         batch_size,
+                         dimension))
+
+stock_seq = torch.empty((sequence_len,
+                         batch_size,
+                         dimension))
+
+#xtmp = self.fc(input)
+# x = self.activation(xtmp)
+x = torch.ones(batch_size, dimension)*0.5
+x0 = x
+
+ones = torch.ones(batch_size, dimension)
+# x0 = input
+# x = input*0.2
+
+# init the both layer cells with the zeroth hidden and zeroth cell states
+
+s = torch.ones(batch_size, dimension) * s0
+stock_seq[0] = s
+input_seq[0] = x
+# for every timestep use input x[t] to compute control out from hiden state h1 and derive the next imput x[t+1]
+for t in range(sequence_len):
+    # get the hidden and cell states from the first layer cell
+
+    # out = self.activation(out)
+    out = torch.rand(batch_size, dimension)
+    output_seq[t] = out
+    if t < sequence_len - 1:
+        x = x + torch.mean(x, dim=0) * torch.mean(out, dim=0) * ones * dt + volatility * sqrdt * w[t]
+        s = s + s * drift * dt + s * volatility * sqrdt * w[t]
+        input_seq[t + 1] = x
+        stock_seq[t + 1] = s
+# return the output and state sequence
+
+
+return output_seq, x, input_seq, x0, s, stock_seq
 
 
 
 
-
-
+def loss3(x,x0,out_seq):
+    Ftmp = torch.ones(batch_size, dim) * F
+    terminal = torch.mean(torch.square(torch.norm(x - Ftmp, dim=1)))
+    start = torch.mean(torch.square(torch.norm(x0, dim=1)))
+    integral = torch.trapz(torch.square(torch.norm(out_seq,dim=2)),dx= dt,dim=0)
+    ongoing = torch.mean(integral)
+    return start + ongoing + terminal
 
 
 

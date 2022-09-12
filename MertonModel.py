@@ -5,9 +5,12 @@ import torch.optim as optim
 import numpy as np
 import matplotlib.pyplot as plt
 import time
+from scipy.stats import norm
 
 torch.manual_seed(1)
 path = "C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/Graphs/"
+
+
 
 T = 1
 sequence_len = 30
@@ -16,16 +19,45 @@ t1=np.arange(0,T,dt)
 sqrdt = np.sqrt(dt)
 initial_state = 1
 drift = -0.2
-volatility = 0.2
-gamma = 0.2
-jump_switch = True
-rates = [10.0]
+volatility = 0.5
+gamma = 1
+jump_switch = False
+rates = [20.0]
 dim = len(rates)
 batch_size = 512
 hidden_dim = 512
 F = 0.2
 s0 = 0.5
 
+mu = -0.2
+sigma = 0.05
+jump_rate = np.exp(mu + 0.5*sigma**2 ) - 1
+
+
+if jump_switch:
+    drift = drift - rates[0]*jump_rate #TODO: generalisation for multiple dimensions
+
+####################################################################################
+# ANALYTIC RESULT
+
+def BS(initial, strike, vol, terminal,rate):
+    d1 = (1/(vol*np.sqrt(terminal)))*(np.log(initial/strike) + terminal*(rate+0.5*vol**2))
+    d2 = d1- vol*np.sqrt(terminal)
+    call = norm.cdf(d1)*initial - norm.cdf(d2)*strike*np.exp(-rate*terminal)
+    return call
+
+
+
+
+if jump_switch:
+    rate2 = rates[0]*(1+jump_rate)
+    option_value = 0
+    for i in range(80):
+        vol_i = volatility**2 + (i*sigma**2)/T
+        r_i = - rates[0]*jump_rate + (i*np.log(1+jump_rate))/T
+        option_value += BS(s0,F,vol_i,T,r_i)*(np.exp(-rate2*T) * (rate2*T)**i)/(np.math.factorial(i))
+else:
+    option_value = BS(s0,F,volatility,T,0)
 
 
 ##################################################################################
@@ -124,7 +156,8 @@ class ControlLSTM(nn.ModuleList):
                     cum_time = np.random.exponential(1 / rates[dn])
                     while (cum_time < T):
                         indx = int(cum_time / dt)
-                        jumpsize = 1 - (2 * np.random.randint(2))  # enakomerno -1,1
+                        #jumpsize = 1 - (2 * np.random.randint(2))  # enakomerno -1,1
+                        jumpsize = np.random.normal(mu,sigma)
                         tj[indx, bn, dn] += jumpsize
 
                         cum_time += np.random.exponential(1 / rates[dn])
@@ -155,8 +188,10 @@ states = []
 state_seqs = []
 initials = []
 stock_seqs = []
+neg_val = []
 
-epochs_number = 1000
+
+epochs_number = 2000
 
 start = time.time()
 loss_min = 1
@@ -182,6 +217,18 @@ for epoch in range(epochs_number):
     state_seqs.append(torch.mean(state_seq[:,:,0], 1).detach().cpu().numpy())
     initials.append(torch.mean(initial[:,0]).detach().cpu().numpy())
     stock_seqs.append(torch.mean(stock_seq[:,:,0], 1).detach().cpu().numpy())
+
+    ########
+    #check for negative stock values
+
+    ss = stock_seq[:, :, 0].detach().cpu().numpy()
+    sst = ss >= 0
+    pozs = np.sum(np.prod(sst,0))
+    neg_val.append(512-pozs)
+
+    ########
+
+
 
     if loss < loss_min:
         e_min = epoch
@@ -211,6 +258,7 @@ np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"J"+str(jump_swi
 
 epochs = np.arange(0,epochs_number,1)
 plt.plot(epochs,initials)
+plt.axhline(y=option_value, color='r', linestyle='-')
 plt.show()
 
 
@@ -354,3 +402,63 @@ for i in range(1000):
     if t < 1.145:
         zav += 1
 print(zav/1000)
+
+##################################################
+toLoad = "JFalsei1.0s0.5d0.3v0.2bs512ep4.0k_"
+
+
+state = np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"state.npy")
+control = np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"control.npy")
+stock = np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"stock.npy")
+initials = np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"initials.npy")
+losses = np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"losses.npy")
+
+
+i =np.random.randint(batch_size)
+opt = max(stock[-1,i]-F,0)
+plt.plot(t1,control[:,i],"black")
+plt.plot(t1, state[:,i], "blue")
+plt.plot(t1, stock[:,i])
+plt.axhline(y=opt, color='r', linestyle='-')
+plt.savefig(path + "OptionPricing/" + toLoad + "market.jpg")
+#plt.title("sdsad")
+plt.show()
+
+
+
+epochs_number = 3000
+epochs = np.arange(0,epochs_number,1)
+
+first_n = 200
+
+
+plt.plot(epochs[:first_n],initials[:first_n])
+plt.axhline(y=option_value, color='r', linestyle='-')
+plt.savefig(path + "OptionPricing/" + toLoad +"first" +str(first_n) +"initials.jpg")
+plt.show()
+
+
+plt.plot(epochs[:],initials[:])
+plt.axhline(y=option_value, color='r', linestyle='-')
+plt.savefig(path + "OptionPricing/" + toLoad + "initials.jpg")
+plt.show()
+
+np.mean(initials[-50:])
+
+plt.plot(epochs[:first_n],losses[:first_n])
+plt.savefig(path + "OptionPricing/" + toLoad + "first" +str(first_n) +"losses.jpg")
+plt.show()
+
+plt.plot(epochs[:],losses[:])
+plt.savefig(path + "OptionPricing/" + toLoad + "losses.jpg")
+plt.show()
+
+np.mean(losses[-50:])
+
+
+abs(option_value - initials[-1])/s0
+
+
+
+
+
