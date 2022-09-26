@@ -173,7 +173,7 @@ ones = torch.ones(batch_size, dimension)
 
 # init the both layer cells with the zeroth hidden and zeroth cell states
 
-s = torch.ones(batch_size, dimension) * s0
+s = torch.ones(batch_size, dimension) * 0
 stock_seq[0] = s
 input_seq[0] = x
 # for every timestep use input x[t] to compute control out from hiden state h1 and derive the next imput x[t+1]
@@ -185,13 +185,15 @@ for t in range(sequence_len):
     output_seq[t] = out
     if t < sequence_len - 1:
         x = x + torch.mean(x, dim=0) * torch.mean(out, dim=0) * ones * dt + volatility * sqrdt * w[t]
-        s = s + s * drift * dt + s * volatility * sqrdt * w[t]
+        for i in range(batch_size):
+            dimones = torch.ones(dimension)
+            s[i,:] = dimones * (dt*t)**(i+1)
         input_seq[t + 1] = x
         stock_seq[t + 1] = s
 # return the output and state sequence
 
 
-return output_seq, x, input_seq, x0, s, stock_seq
+
 
 
 
@@ -209,3 +211,11 @@ def loss3(x,x0,out_seq):
 
 
 
+tst = torch.trapz(torch.square(torch.norm(stock_seq,dim=2)),dx= dt,dim=0)
+
+ss = stock_seq.detach().cpu().numpy()
+
+plt.plot(t1,ss[:,0,0],"palegreen")
+plt.plot(t1,ss[:,1,0],"red")
+plt.plot(t1,ss[:,2,0],"black")
+plt.show()

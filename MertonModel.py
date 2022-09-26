@@ -13,21 +13,24 @@ path = "C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/Graphs/"
 
 
 T = 1
-sequence_len = 30
+sequence_len = 150
 dt = T/sequence_len
 t1=np.arange(0,T,dt)
 sqrdt = np.sqrt(dt)
 initial_state = 1
-drift = -0.2
-volatility = 0.5
+drift = 0.2
+drift_orig = drift
+volatility = 0.2
 gamma = 1
-jump_switch = False
+jump_switch = True
 rates = [20.0]
 dim = len(rates)
 batch_size = 512
 hidden_dim = 512
-F = 0.2
-s0 = 0.5
+F = 0.5
+s0 = 1
+r = 0
+
 
 mu = -0.2
 sigma = 0.05
@@ -94,13 +97,14 @@ class ControlLSTM(nn.ModuleList):
 
 
         xtmp = self.fc(input)
-        x = self.activation(xtmp)
+        #x = self.activation(xtmp)
         x = xtmp
         x0 = x
 
 
         #x0 = input
-        #x = input*0.2
+        #x = input*option_value
+        #x0 = x
 
         # init the both layer cells with the zeroth hidden and zeroth cell states
         hc_1 = hc
@@ -118,8 +122,8 @@ class ControlLSTM(nn.ModuleList):
 
             output_seq[t] = out
             if t < self.sequence_len - 1:
-                x = x + x * out * drift * dt + x * out * volatility * sqrdt * w[t] + x*out*gamma* tj[t]
-                s = s + s* drift * dt + s *  volatility * sqrdt * w[t] + s *gamma* tj[t]
+                x = x + x *( (1-out)* r + out * drift )* dt + x * out * volatility * sqrdt * w[t] + x*out*gamma* tj[t]
+                s = s + s* drift* dt + s *  volatility * sqrdt * w[t] + s *gamma* tj[t]
                 input_seq[t+1] = x
                 stock_seq[t+1] = s
         # return the output and state sequence
@@ -191,7 +195,7 @@ stock_seqs = []
 neg_val = []
 
 
-epochs_number = 2000
+epochs_number = 10000
 
 start = time.time()
 loss_min = 1
@@ -245,16 +249,27 @@ end = time.time()
 
 ##################################################################################
 
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"J"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "losses",losses)
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"J"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "initials",initials)
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"J"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "stock", stock_seq[:,:,0].detach().cpu().numpy())
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"J"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "control", control[:,:,0].detach().cpu().numpy())
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"J"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "state", state_seq[:,:,0].detach().cpu().numpy())
+drift = drift_orig
+
+#name = "initial_fixed_J"
+name = "J"
+
+if r != 0:
+    name = name+"r"+str(r)
+
+np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "losses",losses)
+np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "initials",initials)
+np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "stock", stock_seq[:,:,0].detach().cpu().numpy())
+np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "control", control[:,:,0].detach().cpu().numpy())
+np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "state", state_seq[:,:,0].detach().cpu().numpy())
 
 
 
+torch.save(net.state_dict(), "C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_model_dic")
+torch.save(net, "C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_model")
 
-
+net = torch.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/JTruei0.5s0.2d3.804903871613452v0.2bs512ep5.0k_model")
+###################################################################################
 
 epochs = np.arange(0,epochs_number,1)
 plt.plot(epochs,initials)
@@ -404,14 +419,14 @@ for i in range(1000):
 print(zav/1000)
 
 ##################################################
-toLoad = "JFalsei1.0s0.5d0.3v0.2bs512ep4.0k_"
+toLoad = "initial_fixed_JTruei1.0s0.5d3.9049038716134516v0.2bs512ep3.0k_"
 
 
-state = np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"state.npy")
-control = np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"control.npy")
-stock = np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"stock.npy")
-initials = np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"initials.npy")
-losses = np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"losses.npy")
+state = list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"state.npy"))
+control = list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"control.npy"))
+stock = list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"stock.npy"))
+initials = list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"initials.npy"))
+losses2 = list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"losses.npy"))
 
 
 i =np.random.randint(batch_size)

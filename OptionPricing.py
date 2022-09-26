@@ -9,26 +9,104 @@ import time
 torch.manual_seed(1)
 path = "C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/Graphs/"
 
+
+###############################################################################
+
+#Learning parameters NEEDS TO BE ALWAYS RUN!!!!!!
+batch_size = 512
+hidden_dim = 512
+fixed_initial = False
+merton_switch = False
+jump_switch = False
+mf_switch = False
+#MODEL PARAMETERS NEEDS TO BE ALWAYS RUN
 T = 1
 sequence_len = 30
 dt = T/sequence_len
 t1=np.arange(0,T,dt)
 sqrdt = np.sqrt(dt)
-initial_state = 1
+
+
+
 drift = -0.2
 volatility = 0.2
-gamma = 0.2
-jump_switch = True
-rates = [10.0]
-dim = len(rates)
-batch_size = 512
-hidden_dim = 512
+r = 0
+
 F = 0.2
 s0 = 0.5
+
+#########################################################################################
+
+#JUMP PARAMETERS
+jump_switch = True
+gamma = 0.2
+rates = [10.0]
+dim = len(rates)
+
+#MERTON PARAMETERS
+merton_switch = True
+mu = -0.2
+sigma = 0.05
+jump_rate = np.exp(mu + 0.5*sigma**2 ) - 1
+drift_orig = drift
+drift = drift - rates[0]*jump_rate #TODO: generalisation for multiple dimensions
+
+
+
+#CASE OF FIXED INITIALS
+fixed_initial = True
+
+
+#MEAN FIELD CONTROL
+mf_switch = True
+
+
+####################################################################################
+# ANALYTIC RESULT
+
+def BS(initial, strike, vol, terminal,rate):
+    d1 = (1/(vol*np.sqrt(terminal)))*(np.log(initial/strike) + terminal*(rate+0.5*vol**2))
+    d2 = d1- vol*np.sqrt(terminal)
+    call = norm.cdf(d1)*initial - norm.cdf(d2)*strike*np.exp(-rate*terminal)
+    return call
+
+
+
+
+if jump_switch:
+    rate2 = rates[0]*(1+jump_rate)
+    option_value = 0
+    for i in range(80):
+        vol_i = volatility**2 + (i*sigma**2)/T
+        r_i = - rates[0]*jump_rate + (i*np.log(1+jump_rate))/T
+        option_value += BS(s0,F,vol_i,T,r_i)*(np.exp(-rate2*T) * (rate2*T)**i)/(np.math.factorial(i))
+else:
+    option_value = BS(s0,F,volatility,T,0)
+
+
+##################################################################################
+#SDES
+
+#Geometric Levy Process
+def glp(x,s,out,t):
+    dx = x *( (1-out)* r + out * drift )* dt + x * out * volatility * sqrdt * w[t] + x*out*gamma* tj[t]
+    ds = s* drift* dt + s *  volatility * sqrdt * w[t] + s *gamma* tj[t]
+    return dx, ds
+
+# Mean-Field
+def mf(x,out,t,bs,dim):
+    ones = torch.ones(bs, dim)
+    dx = torch.mean(x,dim=0) * torch.mean(out,dim = 0) * ones * dt +  volatility * sqrdt * w[t]
+    ds = 0
+    return dx, ds
+
+
+
 
 
 
 ##################################################################################
+
 
 class ControlLSTM(nn.ModuleList):
     def __init__(self, sequence_len, dimension, hidden_dim, batch_size):
@@ -61,14 +139,17 @@ class ControlLSTM(nn.ModuleList):
                                  self.dimension))
 
 
-        xtmp = self.fc(input)
-        x = self.activation(xtmp)
-        x = xtmp
-        x0 = x
+        if fixed_initial:
+            x = input*option_value
+            x0 = x
+        else:
+            xtmp = self.fc(input)
+           #x = self.activation(xtmp)
+            x = xtmp
+            x0 = x
 
 
-        #x0 = input
-        #x = input*0.2
+
 
         # init the both layer cells with the zeroth hidden and zeroth cell states
         hc_1 = hc
@@ -86,8 +167,12 @@ class ControlLSTM(nn.ModuleList):
 
             output_seq[t] = out
             if t < self.sequence_len - 1:
-                x = x + x * out * drift * dt + x * out * volatility * sqrdt * w[t] + x*out*gamma* tj[t]
-                s = s + s* drift * dt + s *  volatility * sqrdt * w[t] + s *gamma* tj[t]
+                if mf_switch == False:
+                    dx, ds = glp(x,s,out,t)
+                else:
+                    dx, ds = mf(x,out,t,self.batch_size, self.dimension)
+                x = x + dx
+                s = s + ds
                 input_seq[t+1] = x
                 stock_seq[t+1] = s
         # return the output and state sequence
@@ -124,7 +209,12 @@ class ControlLSTM(nn.ModuleList):
                     cum_time = np.random.exponential(1 / rates[dn])
                     while (cum_time < T):
                         indx = int(cum_time / dt)
-                        jumpsize = 1 - (2 * np.random.randint(2))  # enakomerno -1,1
+
+                        #Different types of the jumps in the compound Poisson process
+                        #jumpsize = 1 - (2 * np.random.randint(2))  # uniform {-1,1}
+                        #jumpsize = np.random.normal(mu, sigma)   #Merton: lognormal
+                        jumpsize = 1 #HPP
+
                         tj[indx, bn, dn] += jumpsize
 
                         cum_time += np.random.exponential(1 / rates[dn])
@@ -143,6 +233,15 @@ def loss2(x,sT):
     return 0.5 * torch.mean(torch.square(torch.norm(x - FF, dim=1)))
 
 
+def loss3(x,x0,out_seq):
+    Ftmp = torch.ones(batch_size, dim) * F
+    terminal = torch.mean(torch.square(torch.norm(x - Ftmp, dim=1)))
+    start = torch.mean(torch.square(torch.norm(x0, dim=1)))
+    integral = torch.trapz(torch.square(torch.norm(out_seq,dim=2)),dx= dt,dim=0)
+    ongoing = torch.mean(integral)
+    return start + ongoing + terminal
+
+
 ##################################################################################
 
 net = ControlLSTM(sequence_len=sequence_len, dimension=dim, hidden_dim=hidden_dim, batch_size=batch_size)
@@ -155,16 +254,21 @@ states = []
 state_seqs = []
 initials = []
 stock_seqs = []
+neg_val = []
 
-epochs_number = 1000
+
+epochs_number = 5
 
 start = time.time()
 loss_min = 1
 for epoch in range(epochs_number):
     print(f"Epoch {epoch}")
     hc = net.init_hidden()
-    input = net.init_input()
-    #input = net.init_initial()
+    if fixed_initial:
+        input = net.init_initial()
+    else:
+        input = net.init_input()
+
     w = net.init_brownian()
     tj = net.init_jumpTimes()
     net.zero_grad()
@@ -172,7 +276,10 @@ for epoch in range(epochs_number):
 
 
     #loss = loss1(state)
-    loss = loss2(state,sT)
+    if mf_switch == False:
+        loss = loss2(state,sT)
+    else:
+        loss = loss3(state,initial,control)
     loss.backward()
     optimizer.step()
 
@@ -190,27 +297,55 @@ for epoch in range(epochs_number):
         sta_min = state_seq[:,:,0].detach().cpu().numpy()
         sto_min = stock_seq[:,:,0].detach().cpu().numpy()
         in_min = initial[:,0].detach().cpu().numpy()
+
+
+    ########
+    #check for negative stock values
+
+    ss = stock_seq[:, :, 0].detach().cpu().numpy()
+    sst = ss >= 0
+    pozs = np.sum(np.prod(sst,0))
+    neg_val.append(512-pozs)
+
+    ########
 end = time.time()
 
 
 
-
-
 ##################################################################################
+#Saving the results
 
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"J"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "losses",losses)
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"J"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "initials",initials)
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"J"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "stock", stock_seq[:,:,0].detach().cpu().numpy())
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"J"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "control", control[:,:,0].detach().cpu().numpy())
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"J"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "state", state_seq[:,:,0].detach().cpu().numpy())
+if merton_switch:
+    drift = drift_orig
+
+if fixed_initial:
+    name = "initial_fixed_J"
+else:
+    name = "J"
+
+if r != 0:
+    name = "r"+str(r) + name
+if mf_switch:
+    name = "MF-J"
+
+
+np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "losses",losses)
+np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "initials",initials)
+np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "stock", stock_seq[:,:,0].detach().cpu().numpy())
+np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "control", control[:,:,0].detach().cpu().numpy())
+np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "state", state_seq[:,:,0].detach().cpu().numpy())
 
 
 
+torch.save(net.state_dict(), "C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_model_dic")
+torch.save(net, "C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_model")
 
-
+net = torch.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/JTruei0.5s0.2d3.804903871613452v0.2bs512ep5.0k_model")
+###################################################################################
 
 epochs = np.arange(0,epochs_number,1)
 plt.plot(epochs,initials)
+plt.axhline(y=option_value, color='r', linestyle='-')
 plt.show()
 
 
@@ -354,3 +489,61 @@ for i in range(1000):
     if t < 1.145:
         zav += 1
 print(zav/1000)
+
+##################################################
+toLoad = "initial_fixed_JTruei1.0s0.5d3.9049038716134516v0.2bs512ep3.0k_"
+
+
+state = list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"state.npy"))
+control = list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"control.npy"))
+stock = list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"stock.npy"))
+initials = list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"initials.npy"))
+losses2 = list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"losses.npy"))
+
+
+i =np.random.randint(batch_size)
+opt = max(stock[-1,i]-F,0)
+plt.plot(t1,control[:,i],"black")
+plt.plot(t1, state[:,i], "blue")
+plt.plot(t1, stock[:,i])
+plt.axhline(y=opt, color='r', linestyle='-')
+plt.savefig(path + "OptionPricing/" + toLoad + "market.jpg")
+#plt.title("sdsad")
+plt.show()
+
+
+
+epochs_number = 3000
+epochs = np.arange(0,epochs_number,1)
+
+first_n = 200
+
+
+plt.plot(epochs[:first_n],initials[:first_n])
+plt.axhline(y=option_value, color='r', linestyle='-')
+plt.savefig(path + "OptionPricing/" + toLoad +"first" +str(first_n) +"initials.jpg")
+plt.show()
+
+
+plt.plot(epochs[:],initials[:])
+plt.axhline(y=option_value, color='r', linestyle='-')
+plt.savefig(path + "OptionPricing/" + toLoad + "initials.jpg")
+plt.show()
+
+np.mean(initials[-50:])
+
+plt.plot(epochs[:first_n],losses[:first_n])
+plt.savefig(path + "OptionPricing/" + toLoad + "first" +str(first_n) +"losses.jpg")
+plt.show()
+
+plt.plot(epochs[:],losses[:])
+plt.savefig(path + "OptionPricing/" + toLoad + "losses.jpg")
+plt.show()
+
+np.mean(losses[-50:])
+
+
+abs(option_value - initials[-1])/s0
+
+
+

@@ -18,7 +18,7 @@ dt = T/sequence_len
 t1=np.arange(0,T,dt)
 sqrdt = np.sqrt(dt)
 initial_state = 1
-drift = 1
+drift = 0.2
 volatility = 0.2
 gamma = 1
 jump_switch = False
@@ -26,7 +26,7 @@ rates = [20.0]
 dim = len(rates)
 batch_size = 512
 hidden_dim = 512
-F = 1.0
+F = 10.0
 s0 = 0.5
 
 mu = -0.2
@@ -200,7 +200,7 @@ stock_seqs = []
 neg_val = []
 
 
-epochs_number = 3000
+epochs_number = 400
 
 start = time.time()
 loss_min = 1
@@ -254,11 +254,11 @@ end = time.time()
 
 ##################################################################################
 
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"J"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "losses",losses)
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"J"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "initials",initials)
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"J"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "stock", stock_seq[:,:,0].detach().cpu().numpy())
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"J"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "control", control[:,:,0].detach().cpu().numpy())
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"J"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "state", state_seq[:,:,0].detach().cpu().numpy())
+np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"MF"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "losses",losses)
+np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"MF"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "initials",initials)
+np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"MF"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "stock", stock_seq[:,:,0].detach().cpu().numpy())
+np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"MF"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "control", control[:,:,0].detach().cpu().numpy())
+np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"MF"+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "state", state_seq[:,:,0].detach().cpu().numpy())
 
 
 
