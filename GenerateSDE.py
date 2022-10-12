@@ -219,3 +219,81 @@ plt.plot(t1,ss[:,0,0],"palegreen")
 plt.plot(t1,ss[:,1,0],"red")
 plt.plot(t1,ss[:,2,0],"black")
 plt.show()
+
+
+ftmp = torch.ones(batch_size) * F
+f = torch.max(torch.zeros(batch_size), torch.norm(sT, dim=1) - ftmp)
+# Z*
+G = -drift_orig / (volatility ** 2 + rates[0] * gamma ** 2)
+ZT = np.exp((-0.5 * (volatility ** 2) *( G ** 2) - rates[0] * G * gamma) * T * torch.ones(batch_size) + G * volatility *sqrdt*torch.sum( w[:,:,0], dim=0) + np.log(1 + G * gamma) * torch.sum(tj[:, :, 0], dim=0))
+
+# z hat
+z_hat = torch.mean(f * ZT)
+
+torch.max(f*ZT)
+
+bgt = sqrdt*torch.sum(w[:,:,0], dim=0)
+bgt = bgt.detach().cpu().numpy()
+
+plt.hist(bgt)
+plt.show()
+
+x = np.random.normal(0,1,batch_size)
+
+plt.hist(x)
+plt.show()
+
+plt.scatter(x,bgt)
+plt.show()
+
+bg = w[:,:,0].detach().cpu().numpy()
+
+
+i =np.random.randint(batch_size)
+plt.plot(t1,bg[:,i])
+plt.show()
+
+
+
+percs = np.linspace(0,100,21)
+qn_a = np.percentile(bgt, percs)
+qn_b = np.percentile(x, percs)
+
+plt.plot(qn_a,qn_b, ls="", marker="o")
+
+y = np.linspace(np.min((qn_a.min(),qn_b.min())), np.max((qn_a.max(),qn_b.max())))
+plt.plot(y,y, color="k", ls="--")
+
+plt.show()
+
+np.mean(z_hats)
+
+
+
+
+
+x = sto_min[:,i]
+K = np.ones(sequence_len)*F
+
+d1 = (np.log(x/K) + (r + 0.5 * volatility**2)*(np.ones(sequence_len)*T - t1))/(volatility*np.sqrt(np.ones(sequence_len)*T - t1))
+
+por = norm.cdf(d1)
+
+ratio = por*x/sta_min[:,i]
+
+
+
+
+i =np.random.randint(batch_size)
+
+x = sto_min
+K = np.ones(sequence_len,batch_size)*F
+
+d1 = (np.log(x/K) + (r + 0.5 * volatility**2)*(np.ones(sequence_len,batch_size)*T - t1))/(volatility*np.sqrt(np.ones(sequence_len)*T - t1))
+
+por = norm.cdf(d1)
+
+ratio = por*x/sta_min[:,i]
+
+
+

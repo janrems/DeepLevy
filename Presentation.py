@@ -19,7 +19,7 @@ hidden_dim = 512
 fixed_initial = False
 merton_switch = False
 jump_switch = False
-mf_switch = False
+
 #MODEL PARAMETERS NEEDS TO BE ALWAYS RUN
 T = 1
 sequence_len = 30
@@ -59,8 +59,6 @@ drift = drift_orig - rates[0]*jump_rate #TODO: generalisation for multiple dimen
 fixed_initial = True
 
 
-#MEAN FIELD CONTROL
-mf_switch = True
 
 
 ####################################################################################
@@ -95,13 +93,6 @@ def glp(x,s,out,t):
     ds = s* drift* dt + s *  volatility * sqrdt * w[t] + s *gamma* tj[t]
     return dx, ds
 
-
-# Mean-Field
-def mf(x,out,t,bs,dim):
-    ones = torch.ones(bs, dim)
-    dx = torch.mean(x,dim=0) * torch.mean(out,dim = 0) * ones * dt +  volatility * sqrdt * w[t]
-    ds = 0
-    return dx, ds
 
 
 
@@ -200,10 +191,9 @@ class ControlLSTM(nn.ModuleList):
 
             output_seq[t] = out
             if t < self.sequence_len - 1:
-                if mf_switch == False:
-                    dx, ds = glp(x,s,out,t)
-                else:
-                    dx, ds = mf(x,out,t,self.batch_size, self.dimension)
+
+                dx, ds = glp(x,s,out,t)
+
                 x = x + dx
                 s = s + ds
                 input_seq[t+1] = x
@@ -261,19 +251,13 @@ def loss1(input):
     FF = torch.ones(batch_size, dim)*F
     return 0.5 * torch.mean(torch.square(torch.norm(input - FF, dim=1)))
 
+#European call option loss in min variance case
 def loss2(x,sT):
     Ftmp = torch.ones(batch_size, dim) * F
     FF = torch.max(torch.zeros(batch_size,dim), sT-Ftmp)
     return 0.5 * torch.mean(torch.square(torch.norm(x - FF, dim=1)))
 
 
-def loss3(x,x0,out_seq):
-    Ftmp = torch.ones(batch_size, dim) * F
-    terminal = torch.mean(torch.square(torch.norm(x - Ftmp, dim=1)))
-    start = torch.mean(torch.square(torch.norm(x0, dim=1)))
-    integral = torch.trapz(torch.square(torch.norm(out_seq,dim=2)),dx= dt,dim=0)
-    ongoing = torch.mean(integral)
-    return start + ongoing + terminal
 
 ########################################################################
 
@@ -309,11 +293,9 @@ for epoch in range(epochs_number):
     control, state, state_seq, initial, sT, stock_seq = net(input, w, tj, hc)
 
 
-    #loss = loss1(state)
-    if mf_switch == False:
-        loss = loss2(state,sT)
-    else:
-        loss = loss3(state,initial,control)
+
+    loss = loss2(state,sT)
+
     loss.backward()
     optimizer.step()
 
@@ -363,8 +345,7 @@ else:
 
 if r != 0:
     name = "r"+str(r) + name
-if mf_switch:
-    name = "MF-J"
+
 
 
 np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "losses",losses)
@@ -379,8 +360,12 @@ torch.save(net.state_dict(), "C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/da
 torch.save(net, "C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_model")
 
 net = torch.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/JTruei0.5s0.2d3.804903871613452v0.2bs512ep5.0k_model")
-###################################################################################
 
+
+###################################################################################
+#GRAPHS
+
+#Convergence of initials
 epochs = np.arange(0,epochs_number,1)
 epch = np.arange(0,4000,1)
 plt.plot(epochs,initials)
@@ -389,16 +374,9 @@ plt.axhline(y=option_value, color='r', linestyle='-')
 plt.show()
 
 
-i =np.random.randint(batch_size)
-opt = max(stock_seq[-1,i,0].detach().cpu().numpy()-F,0)
-plt.plot(t1,control[:,i,0].detach().numpy(),"black")
-plt.plot(t1, state_seq[:,i,0].detach().cpu().numpy(), "blue")
-plt.plot(t1, stock_seq[:,i,0].detach().cpu().numpy())
-plt.axhline(y=opt, color='r', linestyle='-')
-plt.title("sdsad")
-plt.show()
 
 
+#optimal portfolio
 i =np.random.randint(batch_size)
 
 x = sto_min[:,i]
@@ -412,6 +390,7 @@ ratio = por*x/sta_min[:,i]
 
 
 
+#Market realisation
 opt = max(sto_min[-1,i]-F,0)
 plt.plot(t1,con_min[:,i],"black",label="Replicating portfolio")
 plt.plot(t1,ratio,color="black", linestyle="--",label="BS replic. portfoli")
@@ -424,187 +403,13 @@ plt.savefig(path + "OptionPricing/" +name+str(jump_switch)+"i"+str(s0) +"F" +str
 plt.show()
 
 
-control[-1,i,0]
-state_seq[0,i,0]
 
 
 
-plt.plot(t1,controls[0],"palegreen")
-plt.plot(t1,controls[int(epochs_number/5)],"azure")
-plt.plot(t1,controls[int(epochs_number*2/5)],"lightblue")
-plt.plot(t1,controls[int(epochs_number*3/5)], "silver")
-plt.plot(t1,controls[int(epochs_number*4/5)], "dimgray")
-plt.plot(t1,controls[-1],"black")
-#plt.axhline(y=opt_control, color='r', linestyle='-')
-plt.title("drift = " + str(drift) + ", vol = "+ str(volatility) + ", gamma = " + str(gamma) + ", ep = "+ str(epochs_number) + ", bs = " + str(batch_size) + ", t = "+ str(int(end-start))+"s" + ", hd = " + str(hidden_dim),fontsize= 10)
-#plt.savefig(path + "control"+ "d" +str(drift)+"v"+str(volatility) + "g"+ str(gamma)+"e" + str(200)+"b"+str(batch_size) + ", hd = " + str(hidden_dim)+".jpg")
-
-plt.show()
-
-
-plt.plot(t1, state_seq[:,2,0].detach().cpu().numpy())
-plt.show()
-
-plt.plot(t1,state_seqs[4])
-plt.show()
-
-i = np.random.randint(1000)
-plt.plot(t1, stock_seq[:,i,0].detach().cpu().numpy())
-plt.show()
-
-plt.plot(t1,controls[-5],"azure")
-plt.plot(t1,controls[-4],"lightblue")
-plt.plot(t1,controls[-3], "silver"); plt.plot(t1,controls[-2], "dimgray")
-plt.plot(t1,controls[-1],"black")
-plt.show()
-
-
-
+#Loss graph
 plt.plot(epochs, losses)
-#plt.title("drift = " + str(drift) + ", vol = "+ str(volatility) + ", gamma = " + str(gamma) + ", epochs = "+ str(epochs_number) + ", batchsize = " + str(batch_size) + ", time = "+ str(int(end-start))+"s",fontsize= 10)
-#plt.savefig(path + "loss"+ "d" +str(drift)+"v"+str(volatility)+"g"+str(gamma)+"e"+str(epochs_number)+"b"+str(batch_size)+".jpg")
+plt.title("drift = " + str(drift) + ", vol = "+ str(volatility) + ", gamma = " + str(gamma) + ", epochs = "+ str(epochs_number) + ", batchsize = " + str(batch_size) + ", time = "+ str(int(end-start))+"s",fontsize= 10)
+plt.savefig(path + "loss"+ "d" +str(drift)+"v"+str(volatility)+"g"+str(gamma)+"e"+str(epochs_number)+"b"+str(batch_size)+".jpg")
 plt.plot(epochs,l_before[:epochs_number],color="r")
 plt.show()
-
-plt.plot(epochs, states)
-plt.show()
-
-plt.plot(epochs, -np.log(states))
-plt.show()
-
-
-plt.plot(epochs, losses,"r")
-plt.plot(epochs,both_l)
-plt.title("Red is loss for fixed initial wealt at 0.2")
-plt.savefig(path+"loss_comparison.jpg")
-plt.show()
-
-plt.plot(t1,state_seq[:,0,0].detach().numpy())
-plt.show()
-
-a2 = volatility**2*gamma
-a1 = gamm**2 - drift*gamma + volatility**2
-a0 = - drift
-
-
-##################################################################################
-
-# net = ControlLSTM(sequence_len=sequence_len, dimension=dim, hidden_dim=512, batch_size=1000)
-# optimizer = optim.Adam(net.parameters(), lr=0.0005)
-#
-# #Training loop
-# losses = []
-# controls = []
-# states = []
-# state_seqs = []
-#
-# e_numbers = 0
-# condition = 1
-# previous = torch.ones(sequence_len)*10
-# while(condition>0.005):
-#     #print(f"Epoch {epoch}")
-#     hc = net.init_hidden()
-#     x = net.init_state()
-#     w = net.init_brownian()
-#     tj = net.init_jumpTimes()
-#     net.zero_grad()
-#     control, state, state_seq = net(x, w, tj, hc)
-#
-#     loss = loss1(state)
-#     loss.backward()
-#     optimizer.step()
-#
-#     losses.append(loss.detach().cpu().numpy())
-#     controls.append(torch.mean(control[:,:,0], 1).detach().cpu().numpy())
-#     states.append(torch.mean(state[:,0]).detach().cpu().numpy())
-#     state_seqs.append(torch.mean(state_seq[:,:,0], 1).detach().cpu().numpy())
-#
-#     new = torch.mean(control[:,:,0], 1)
-#     condition = torch.norm(new-previous)
-#     previous = new
-#     e_numbers += 1
-#     print(e_numbers)
-
-def get_n_params(model):
-    pp=0
-    for p in list(model.parameters()):
-        nn=1
-        for s in list(p.size()):
-            nn = nn*s
-        pp += nn
-    return pp
-
-
-zav = 0
-for i in range(1000):
-
-    x = np.array([-4.7, -0.7, -0.5, 3.1, 0.1])
-    y = x-1
-    t = np.dot(x-1,x-1)/4
-    #print(t)
-    if t < 1.145:
-        zav += 1
-print(zav/1000)
-
-##################################################
-toLoad = "JFalsei1.0F0.5d0.3v0.2bs512ep12.0k_"
-
-
-state = np.array(list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"state.npy")))
-control = np.array(list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"control.npy")))
-stock = np.array(list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"stock.npy")))
-initials = np.array(list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"initials.npy")))
-losses = np.array(list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"losses.npy")))
-
-
-i =np.random.randint(batch_size)
-
-opt = max(stock[-1,i]-F,0)
-plt.plot(t1,control[:,i],"black", label="Replicating portfolio")
-plt.plot(t1, state[:,i], "blue",label="Wealth process")
-plt.plot(t1, stock[:,i],label="Stock process")
-plt.axhline(y=opt, color='r', linestyle='-', label = "Option payoff")
-plt.title("One market realisation at minimal loss epoch")
-plt.legend(loc="upper left")
-plt.savefig(path + "OptionPricing/" + toLoad + "market.jpg")
-plt.show()
-
-
-
-epochs_number = 8000
-epochs = np.arange(0,epochs_number,1)
-
-first_n = 200
-
-
-plt.plot(epochs[:first_n],initials[:first_n])
-plt.axhline(y=option_value, color='r', linestyle='--', label="BS Option price")
-plt.legend(loc="upper right")
-plt.title("Initial wealth over " + str(first_n) + " epochs")
-plt.savefig(path + "OptionPricing/" + toLoad +"first" +str(first_n) +"initials.jpg")
-plt.show()
-
-
-plt.plot(epochs[:],initials[:])
-plt.axhline(y=option_value, color='r', linestyle='-')
-plt.savefig(path + "OptionPricing/" + toLoad + "initials.jpg")
-plt.show()
-
-np.mean(initials[-50:])
-
-plt.plot(epochs[:first_n],losses[:first_n])
-plt.title("Loss over " + str(first_n) + " epochs")
-plt.savefig(path + "OptionPricing/" + toLoad + "first" +str(first_n) +"losses.jpg")
-plt.show()
-
-plt.plot(epochs[:],losses[:])
-plt.savefig(path + "OptionPricing/" + toLoad + "losses.jpg")
-plt.show()
-
-np.mean(losses[-50:])
-
-
-abs(option_value - initials[-1])/s0
-
-
 

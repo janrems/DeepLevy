@@ -13,7 +13,7 @@ path = "C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/Graphs/"
 
 
 T = 1
-sequence_len = 150
+sequence_len = 30
 dt = T/sequence_len
 t1=np.arange(0,T,dt)
 sqrdt = np.sqrt(dt)
@@ -21,14 +21,14 @@ initial_state = 1
 drift = 0.2
 drift_orig = drift
 volatility = 0.2
-gamma = 1
+gamma = 0.5
 jump_switch = True
-rates = [20.0]
+rates = [5.0]
 dim = len(rates)
 batch_size = 512
 hidden_dim = 512
-F = 0.5
-s0 = 1
+F = 0.2
+s0 = 0.5
 r = 0
 
 
@@ -38,7 +38,8 @@ jump_rate = np.exp(mu + 0.5*sigma**2 ) - 1
 
 
 if jump_switch:
-    drift = drift - rates[0]*jump_rate #TODO: generalisation for multiple dimensions
+    #drift = drift - rates[0]*jump_rate #TODO: generalisation for multiple dimensions
+    drift = drift - gamma*rates[0]
 
 ####################################################################################
 # ANALYTIC RESULT
@@ -161,7 +162,8 @@ class ControlLSTM(nn.ModuleList):
                     while (cum_time < T):
                         indx = int(cum_time / dt)
                         #jumpsize = 1 - (2 * np.random.randint(2))  # enakomerno -1,1
-                        jumpsize = np.random.normal(mu,sigma)
+                        #jumpsize = np.random.normal(mu,sigma)
+                        jumpsize = 1
                         tj[indx, bn, dn] += jumpsize
 
                         cum_time += np.random.exponential(1 / rates[dn])
@@ -195,7 +197,7 @@ stock_seqs = []
 neg_val = []
 
 
-epochs_number = 10000
+epochs_number = 2000
 
 start = time.time()
 loss_min = 1
