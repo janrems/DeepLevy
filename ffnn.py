@@ -22,7 +22,7 @@ jump_switch = False
 mf_switch = False
 #MODEL PARAMETERS NEEDS TO BE ALWAYS RUN
 T = 1
-sequence_len = 150
+sequence_len = 30
 dt = T/sequence_len
 t1=np.arange(0,T,dt)
 sqrdt = np.sqrt(dt)
@@ -159,11 +159,14 @@ class ControlLSTM(nn.ModuleList):
         self.dimension = dimension
 
         # first layer lstm cell
-        self.lstm_1 = nn.LSTMCell(input_size=dimension, hidden_size=hidden_dim)
+
         # fully connected layer to connect the output of the LSTM cell to the output
-        self.fc = nn.Linear(in_features=hidden_dim, out_features=dimension)
-        self.activation = nn.Sigmoid()
-        self.relu = nn.ReLU()
+        self.fc = nn.Linear(in_features=self.hidden_dim, out_features=self.dimension)
+        self.hidden1 = nn.Linear(in_features=self.dimension + 1, out_features= int(self.dimension/3))
+        self.activation1 = nn.ReLU()
+        self.hidden2 = nn.Linear(in_features=int(self.dimension/3), out_features=int(self.dimension/3))
+        self.activation2 = nn.ReLU()
+        self.hidden3 = nn.Linear(in_features=int(self.dimension/3), out_features= self.dimension)
         self.soft = nn.Softplus(beta=1,threshold=3)
 
 
@@ -202,11 +205,16 @@ class ControlLSTM(nn.ModuleList):
         # for every timestep use input x[t] to compute control out from hiden state h1 and derive the next imput x[t+1]
         for t in range(self.sequence_len):
             # get the hidden and cell states from the first layer cell
-            hc_1 = self.lstm_1(x, hc_1)
-            # unpack the hidden and the cell states from the first layer
-            h_1, c_1 = hc_1
-            out = self.fc(h_1)
-            #out = self.activation(out)
+            t_tensor = torch.ones(self.batch_size,self.dimension)*(t*dt)
+            stacked = torch.cat((x,t_tensor),dim=1)
+            out = self.hidden1(stacked)
+            out = self.activation1(out)
+
+            out = self.hidden2(out)
+            out = self.activation2(out)
+
+            out = self.hidden3(out)
+
 
             output_seq[t] = out
             if t < self.sequence_len - 1:
@@ -307,7 +315,7 @@ neg_val = []
 
 
 
-epochs_number = 11091
+epochs_number = 10000
 start = time.time()
 loss_min = 1
 for epoch in range(epochs_number):
@@ -406,8 +414,11 @@ net = torch.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/JFalsei1.
 ###################################################################################
 
 epochs = np.arange(0,epochs_number,1)
-eps2=np.arange(0,10000,1)
 plt.plot(epochs,initials)
+plt.axhline(y=option_value, color='r', linestyle='-')
+plt.show()
+
+eps2=np.arange(0,10000,1)
 plt.plot(epochs,initials[-epochs_number:])
 plt.axhline(y=option_value, color='r', linestyle='-')
 plt.show()

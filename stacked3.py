@@ -51,8 +51,10 @@ rates = [5.0]
 dim = len(rates)
 drift = drift_orig - rates[0]*gamma
 
+
 #MERTON PARAMETERS
 rates = [20.0]
+jump_switch = True
 merton_switch = True
 gamma = 1
 mu = -0.2
@@ -99,8 +101,9 @@ else:
 #Geometric Levy Process
 def glp(x,s,out,t):
     dx = x *( (1-out)* r + out * drift )* dt + x * out * volatility * sqrdt * w[t] + x*out*gamma* tj[t]
-    ds = s* drift* dt + s *  volatility * sqrdt * w[t] + s *gamma* tj[t]
-    return dx, ds
+    ds = s* drift* dt + s *  volatility * sqrdt * w[t] + s *gamma* (torch.exp(tj[t])-torch.ones(batch_size,dim) )
+    dl = (drift -0.5*volatility**2)*dt + volatility*sqrdt*w[t] + gamma*tj[t]
+    return dx, ds, dl
 
 
 # Mean-Field
@@ -159,15 +162,19 @@ class ControlLSTM(nn.ModuleList):
         self.dimension = dimension
 
         # first layer lstm cell
-        self.lstm_1 = nn.LSTMCell(input_size=dimension, hidden_size=hidden_dim)
+        self.lstm_1 = nn.LSTMCell(input_size=self.dimension, hidden_size=self.hidden_dim)
+        #second layer lstm cell
+        self.lstm_2 = nn.LSTMCell(input_size=self.hidden_dim, hidden_size=self.hidden_dim)
         # fully connected layer to connect the output of the LSTM cell to the output
-        self.fc = nn.Linear(in_features=hidden_dim, out_features=dimension)
+        self.lstm_3 = nn.LSTMCell(input_size=self.hidden_dim, hidden_size=self.hidden_dim)
+        self.lstm_4 = nn.LSTMCell(input_size=self.hidden_dim, hidden_size=self.hidden_dim)
+        self.fc = nn.Linear(in_features=self.hidden_dim, out_features=self.dimension)
         self.activation = nn.Sigmoid()
         self.relu = nn.ReLU()
         self.soft = nn.Softplus(beta=1,threshold=3)
 
 
-    def forward(self,input, w,tj, hc):
+    def forward(self,input, w,tj, hc1, hc2, hc3,hc4):
         # empty tensor for the output of the lstm, this is the contol
         output_seq = torch.empty((self.sequence_len,
                                   self.batch_size,
@@ -178,6 +185,10 @@ class ControlLSTM(nn.ModuleList):
                                   self.dimension))
 
         stock_seq = torch.empty((self.sequence_len,
+                                 self.batch_size,
+                                 self.dimension))
+
+        s_seq = torch.empty((self.sequence_len,
                                  self.batch_size,
                                  self.dimension))
 
@@ -195,34 +206,40 @@ class ControlLSTM(nn.ModuleList):
 
 
         # init the both layer cells with the zeroth hidden and zeroth cell states
-        hc_1 = hc
+        hc_1 = hc1
+        hc_2 = hc2
+        hc_3 = hc3
+        hc_4 = hc4
         s = torch.ones(self.batch_size, self.dimension) * s0
+        l= torch.zeros(self.batch_size, self.dimension)
         stock_seq[0] = s
+        s_seq[0] = s
         input_seq[0] = x
         # for every timestep use input x[t] to compute control out from hiden state h1 and derive the next imput x[t+1]
         for t in range(self.sequence_len):
             # get the hidden and cell states from the first layer cell
-            hc_1 = self.lstm_1(x, hc_1)
-            # unpack the hidden and the cell states from the first layer
-            h_1, c_1 = hc_1
-            out = self.fc(h_1)
+            out = x*0
             #out = self.activation(out)
 
             output_seq[t] = out
             if t < self.sequence_len - 1:
                 if mf_switch == False:
-                    dx, ds = glp(x,s,out,t)
+                    dx, ds, dl = glp(x,s,out,t)
+
                 else:
                     dx, ds = mf(x,out,t,self.batch_size, self.dimension)
                 x = x + dx
                 s = s + ds
+                l = l +dl
+
                 input_seq[t+1] = x
                 stock_seq[t+1] = s
+                s_seq[t+1] = s0*torch.exp(l)
         # return the output and state sequence
 
 
 
-        return output_seq, x, input_seq, x0, s, stock_seq
+        return output_seq, x, input_seq, x0, s, stock_seq, s_seq
 
     #functions that initialize hiden state, input and noise
     def init_input(self):
@@ -257,6 +274,7 @@ class ControlLSTM(nn.ModuleList):
                         #Different types of the jumps in the compound Poisson process
                         #jumpsize = 1 - (2 * np.random.randint(2))  # uniform {-1,1}
                         jumpsize = np.random.normal(mu, sigma)   #Merton: lognormal
+                        #jumpsize = np.exp(np.random.normal(mu, sigma)) - 1 #merton test
                         #jumpsize = 1 #HPP
 
                         tj[indx, bn, dn] += jumpsize
@@ -307,12 +325,15 @@ neg_val = []
 
 
 
-epochs_number = 11091
+epochs_number = 13000
 start = time.time()
 loss_min = 1
 for epoch in range(epochs_number):
     print(f"Epoch {epoch}")
-    hc = net.init_hidden()
+    hc1 = net.init_hidden()
+    hc2 = net.init_hidden()
+    hc3 = net.init_hidden()
+    hc4 = net.init_hidden()
     if fixed_initial:
         input = net.init_initial()
     else:
@@ -321,7 +342,7 @@ for epoch in range(epochs_number):
     w = net.init_brownian()
     tj = net.init_jumpTimes()
     net.zero_grad()
-    control, state, state_seq, initial, sT, stock_seq = net(input, w, tj, hc)
+    control, state, state_seq, initial, sT, stock_seq, s_seq = net(input, w, tj, hc1,hc2,hc3,hc4)
 
 
     #loss = loss1(state)
@@ -365,6 +386,8 @@ for epoch in range(epochs_number):
     pozs = np.sum(np.prod(sst,0))
     neg_val.append(batch_size-pozs)
 
+
+
     ########
 end = time.time()
 
@@ -389,7 +412,9 @@ if mf_switch:
     name = "MF-J"
 
 
-name="Merton_J"
+name="Lay4Merton_J"
+
+name = "Layers2J"
 
 np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "losses",losses)
 np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "initials",initials)
@@ -406,19 +431,17 @@ net = torch.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/JFalsei1.
 ###################################################################################
 
 epochs = np.arange(0,epochs_number,1)
-eps2=np.arange(0,10000,1)
+
 plt.plot(epochs,initials)
-plt.plot(epochs,initials[-epochs_number:])
+
 plt.axhline(y=option_value, color='r', linestyle='-')
 plt.show()
 
 
 i =np.random.randint(batch_size)
-opt = max(stock_seq[-1,i,0].detach().cpu().numpy()-F,0)
-plt.plot(t1,control[:,i,0].detach().numpy(),"black")
-plt.plot(t1, state_seq[:,i,0].detach().cpu().numpy(), "blue")
 plt.plot(t1, stock_seq[:,i,0].detach().cpu().numpy())
-plt.axhline(y=opt, color='r', linestyle='-')
+plt.plot(t1, s_seq[:,i,0].detach().cpu().numpy())
+
 plt.title("sdsad")
 plt.show()
 
@@ -439,6 +462,7 @@ ratio = por*x/sta_min[:,i]
 opt = max(sto_min[-1,i]-F,0)
 plt.plot(t1,con_min[:,i],"black",label="Replicating portfolio")
 plt.plot(t1,ratio,color="black", linestyle="--",label="BS replic. portfoli")
+plt.plot(t1,por,color="green", linestyle="--",label="BS rewplic. portfoli")
 plt.plot(t1, sta_min[:,i], "blue", label="Wealth process")
 plt.plot(t1, sto_min[:,i], label="Stock process")
 plt.axhline(y=opt, color='r', linestyle='-', label="Option payoff")
@@ -446,6 +470,7 @@ plt.title("One market realisation at minimal loss epoch")
 plt.legend(loc="center left")
 #plt.savefig(path + "OptionPricing/" +name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" +"market.jpg")
 plt.show()
+
 
 
 control[-1,i,0]
@@ -484,7 +509,7 @@ plt.show()
 
 
 
-plt.plot(epochs, losses)
+plt.plot(epochs[200:], losses[200:])
 #plt.title("drift = " + str(drift) + ", vol = "+ str(volatility) + ", gamma = " + str(gamma) + ", epochs = "+ str(epochs_number) + ", batchsize = " + str(batch_size) + ", time = "+ str(int(end-start))+"s",fontsize= 10)
 #plt.savefig(path + "loss"+ "d" +str(drift)+"v"+str(volatility)+"g"+str(gamma)+"e"+str(epochs_number)+"b"+str(batch_size)+".jpg")
 plt.plot(epochs,l_before[:epochs_number],color="r")
@@ -575,7 +600,7 @@ for i in range(1000):
 print(zav/1000)
 
 ##################################################
-toLoad = "HPP_5_JTruei0.5F0.2d0.2v0.2bs512ep8.0k_"
+toLoad = "Lay2Merton_JTruei1.0F0.5d0.2v0.2bs256ep13.0k_"
 
 
 state = np.array(list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"state.npy")))

@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 from scipy.stats import norm
+import torch.distributions as dist
 
 torch.manual_seed(1)
 path = "C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/Graphs/"
@@ -26,17 +27,14 @@ sequence_len = 150
 dt = T/sequence_len
 t1=np.arange(0,T,dt)
 sqrdt = np.sqrt(dt)
-
+dim = 1
 
 
 drift = 0.2
 drift_orig = drift
 volatility = 0.2
-r = 0
-
 gamma = 0
-rates = [0]
-dim = len(rates)
+r = 0
 
 F = 0.5
 s0 = 1.0
@@ -44,17 +42,19 @@ s0 = 1.0
 
 #########################################################################################
 
-#JUMP PARAMETER
+#JUMP PARAMETERS
 jump_switch = True
 gamma = 1
-rates = [5.0]
+rates = [20.0]
 dim = len(rates)
 drift = drift_orig - rates[0]*gamma
 
 #MERTON PARAMETERS
-rates = [20.0]
 merton_switch = True
+jump_switch = True
 gamma = 1
+rates = [20.0]
+dim = len(rates)
 mu = -0.2
 sigma = 0.05
 jump_rate = np.exp(mu + 0.5*sigma**2 ) - 1
@@ -163,9 +163,6 @@ class ControlLSTM(nn.ModuleList):
         # fully connected layer to connect the output of the LSTM cell to the output
         self.fc = nn.Linear(in_features=hidden_dim, out_features=dimension)
         self.activation = nn.Sigmoid()
-        self.relu = nn.ReLU()
-        self.soft = nn.Softplus(beta=1,threshold=3)
-
 
     def forward(self,input, w,tj, hc):
         # empty tensor for the output of the lstm, this is the contol
@@ -187,26 +184,31 @@ class ControlLSTM(nn.ModuleList):
             x0 = x
         else:
             xtmp = self.fc(input)
-            x = self.soft(xtmp)
-            #x = xtmp
+           #x = self.activation(xtmp)
+            x = xtmp
             x0 = x
 
 
-
+        K = torch.ones(self.batch_size, self.dimension) * F
 
         # init the both layer cells with the zeroth hidden and zeroth cell states
         hc_1 = hc
         s = torch.ones(self.batch_size, self.dimension) * s0
         stock_seq[0] = s
         input_seq[0] = x
+
         # for every timestep use input x[t] to compute control out from hiden state h1 and derive the next imput x[t+1]
         for t in range(self.sequence_len):
-            # get the hidden and cell states from the first layer cell
-            hc_1 = self.lstm_1(x, hc_1)
-            # unpack the hidden and the cell states from the first layer
-            h_1, c_1 = hc_1
-            out = self.fc(h_1)
-            #out = self.activation(out)
+            #Theoretical control
+            #print("s= " + str(s[0, 0]))
+            d1 = (torch.log(s / K) + (r + 0.5 * volatility ** 2) * (T-t*dt)*torch.ones(self.batch_size,self.dimension)) / (
+                       volatility * np.sqrt((T-t*dt)*torch.ones(self.batch_size,self.dimension)))
+
+            #print("d1= " + str(d1[0,0]))
+            n = dist.Normal(torch.tensor([0.0]), torch.tensor([1.0]))
+            por = n.cdf(d1)
+            #print("por= " + str(por[0,0]))
+            out = por*s/x
 
             output_seq[t] = out
             if t < self.sequence_len - 1:
@@ -277,12 +279,6 @@ def loss2(x,sT):
     return 0.5 * torch.mean(torch.square(torch.norm(x - FF, dim=1)))
 
 
-def loss2put(x,sT):
-    Ftmp = torch.ones(batch_size, dim) * F
-    FF = torch.max(torch.zeros(batch_size,dim), Ftmp-sT)
-    return 0.5 * torch.mean(torch.square(torch.norm(x - FF, dim=1)))
-
-
 def loss3(x,x0,out_seq):
     Ftmp = torch.ones(batch_size, dim) * F
     terminal = torch.mean(torch.square(torch.norm(x - Ftmp, dim=1)))
@@ -307,7 +303,8 @@ neg_val = []
 
 
 
-epochs_number = 11091
+epochs_number = 100
+
 start = time.time()
 loss_min = 1
 for epoch in range(epochs_number):
@@ -332,13 +329,11 @@ for epoch in range(epochs_number):
     loss.backward()
     optimizer.step()
 
-    #losses.append(loss.detach().cpu().numpy())
-    losses = np.append(losses,loss.detach().cpu().numpy())
+    losses.append(loss.detach().cpu().numpy())
     controls.append(torch.mean(control[:,:,0], 1).detach().cpu().numpy())
     states.append(torch.mean(state[:,0]).detach().cpu().numpy())
     state_seqs.append(torch.mean(state_seq[:,:,0], 1).detach().cpu().numpy())
-    #initials.append(torch.mean(initial[:,0]).detach().cpu().numpy())
-    initials = np.append(initials, torch.mean(initial[:,0]).detach().cpu().numpy())
+    initials.append(torch.mean(initial[:,0]).detach().cpu().numpy())
     stock_seqs.append(torch.mean(stock_seq[:,:,0], 1).detach().cpu().numpy())
 
 
@@ -351,19 +346,14 @@ for epoch in range(epochs_number):
         in_min = initial[:,0].detach().cpu().numpy()
         loss_min = loss
 
-    # if loss > 1.0 and epoch>300:
-    #     oddstock = stock_seq[:,:,0].detach().cpu().numpy()
-    #     oddwealth = state_seq[:,:,0].detach().cpu().numpy()
-    #     oddcontrol = control[:,:,0].detach().cpu().numpy()
-    #     strange = epoch
-    #     break
+
     ########
     #check for negative stock values
 
     ss = stock_seq[:, :, 0].detach().cpu().numpy()
     sst = ss >= 0
     pozs = np.sum(np.prod(sst,0))
-    neg_val.append(batch_size-pozs)
+    neg_val.append(512-pozs)
 
     ########
 end = time.time()
@@ -389,8 +379,6 @@ if mf_switch:
     name = "MF-J"
 
 
-name="Merton_J"
-
 np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "losses",losses)
 np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "initials",initials)
 np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "stock", stock_seq[:,:,0].detach().cpu().numpy())
@@ -402,13 +390,11 @@ np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_sw
 torch.save(net.state_dict(), "C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_model_dic")
 torch.save(net, "C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_model")
 
-net = torch.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/JFalsei1.0s0.5d0.3v0.2bs512ep12.0k_model")
+net = torch.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/JTruei0.5s0.2d3.804903871613452v0.2bs512ep5.0k_model")
 ###################################################################################
 
 epochs = np.arange(0,epochs_number,1)
-eps2=np.arange(0,10000,1)
 plt.plot(epochs,initials)
-plt.plot(epochs,initials[-epochs_number:])
 plt.axhline(y=option_value, color='r', linestyle='-')
 plt.show()
 
@@ -444,7 +430,7 @@ plt.plot(t1, sto_min[:,i], label="Stock process")
 plt.axhline(y=opt, color='r', linestyle='-', label="Option payoff")
 plt.title("One market realisation at minimal loss epoch")
 plt.legend(loc="center left")
-#plt.savefig(path + "OptionPricing/" +name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" +"market.jpg")
+plt.savefig(path + "OptionPricing/" +name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" +"market.jpg")
 plt.show()
 
 
@@ -489,10 +475,6 @@ plt.plot(epochs, losses)
 #plt.savefig(path + "loss"+ "d" +str(drift)+"v"+str(volatility)+"g"+str(gamma)+"e"+str(epochs_number)+"b"+str(batch_size)+".jpg")
 plt.plot(epochs,l_before[:epochs_number],color="r")
 plt.show()
-
-plt.plot(eps2,losses[-10000:])
-plt.show()
-
 
 plt.plot(epochs, states)
 plt.show()
@@ -575,7 +557,7 @@ for i in range(1000):
 print(zav/1000)
 
 ##################################################
-toLoad = "HPP_5_JTruei0.5F0.2d0.2v0.2bs512ep8.0k_"
+toLoad = "JFalsei1.0F0.5d0.3v0.2bs512ep12.0k_"
 
 
 state = np.array(list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"state.npy")))
