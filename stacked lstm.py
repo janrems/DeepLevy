@@ -140,10 +140,46 @@ def initial_val(n):
     return torch.mean(f * ZT)
 
 
+def initial_val_mert(n):
+    k = np.exp(mu + 0.5 * sigma ** 2) - 1
+    momen2 = np.exp(2 * mu + sigma ** 2) * (np.exp(sigma ** 2) - 1) + k ** 2
+    G = -drift_orig / (volatility ** 2 + rates[0] * momen2)
+
+    bm = np.sqrt(T)*torch.randn(n)
+    poisson = np.random.poisson(rates[0], n)
+    tjz = []
+    tjs = []
+    for i in poisson:
+        logn = np.exp(np.random.normal(mu,sigma,i))
+        transformedz = np.log(1+G*(logn-1))
+        transformeds = np.log(logn)
+        tjz.append(np.sum(transformedz))
+        tjs.append(np.sum(transformeds))
+
+    tjz = torch.tensor(tjz)
+    tjs = torch.tensor(tjs)
 
 
-option_value = initial_val(100000000)
 
+
+    s = s0*torch.exp((drift - 0.5*volatility**2)*T*torch.ones(n) + volatility*bm + tjs)
+
+    ftmp = torch.ones(n) * F
+    f = torch.max(torch.zeros(n), s - ftmp)
+    # Z*
+
+    if torch.min(tjz) <=-1:
+        return print("G*gamma < -1")
+
+    ZT = torch.exp((-0.5 * (volatility ** 2) * G ** 2 - rates[0] * G * k) * T * torch.ones(n) + G * volatility * bm +  tjz)
+
+    # z hat
+    return torch.mean(f * ZT)
+
+
+
+option_value = initial_val_mert(1000000)
+print(option_value)
 
 
 
@@ -263,8 +299,8 @@ class ControlLSTM(nn.ModuleList):
 
                         #Different types of the jumps in the compound Poisson process
                         #jumpsize = 1 - (2 * np.random.randint(2))  # uniform {-1,1}
-                        #jumpsize = np.random.normal(mu, sigma)   #Merton: lognormal
-                        jumpsize = np.exp(np.random.normal(mu, sigma)) - 1
+                        #jumpsize = np.random.normal(mu, sigma)   #Merton: normal
+                        jumpsize = np.exp(np.random.normal(mu, sigma)) - 1 #Merton: lognormal
                         #jumpsize = 1 #HPP
 
                         tj[indx, bn, dn] += jumpsize
@@ -315,7 +351,7 @@ neg_val = []
 
 
 
-epochs_number = 2000
+epochs_number = 14000
 start = time.time()
 loss_min = 1
 for epoch in range(epochs_number):
@@ -331,6 +367,13 @@ for epoch in range(epochs_number):
     tj = net.init_jumpTimes()
     net.zero_grad()
     control, state, state_seq, initial, sT, stock_seq = net(input, w, tj, hc1,hc2)
+
+    ss = stock_seq[:, :, 0].detach().cpu().numpy()
+    sst = ss >= 0
+    pozs = np.sum(np.prod(sst, 0))
+    if pozs < batch_size:
+        epochs_number += 1
+        continue
 
 
     #loss = loss1(state)
@@ -369,11 +412,6 @@ for epoch in range(epochs_number):
     ########
     #check for negative stock values
 
-    ss = stock_seq[:, :, 0].detach().cpu().numpy()
-    sst = ss >= 0
-    pozs = np.sum(np.prod(sst,0))
-    neg_val.append(batch_size-pozs)
-
 
 
     ########
@@ -400,15 +438,15 @@ if mf_switch:
     name = "MF-J"
 
 
-name="Lay2Merton_J"
+name="logLay2Merton_J"
 
 name = "Layers2J"
 
 np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "losses",losses)
 np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "initials",initials)
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "stock", stock_seq[:,:,0].detach().cpu().numpy())
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "control", control[:,:,0].detach().cpu().numpy())
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "state", state_seq[:,:,0].detach().cpu().numpy())
+np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "stock", sto_min)
+np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "control", con_min)
+np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" + "state", sta_min)
 
 
 
@@ -420,8 +458,8 @@ net = torch.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/JFalsei1.
 
 epochs = np.arange(0,epochs_number,1)
 
+epochs = np.arange(0,len(initials),1)
 plt.plot(epochs,initials)
-
 plt.axhline(y=option_value, color='r', linestyle='-')
 plt.show()
 
@@ -434,6 +472,7 @@ plt.plot(t1, stock_seq[:,i,0].detach().cpu().numpy())
 plt.axhline(y=opt, color='r', linestyle='-')
 plt.title("sdsad")
 plt.show()
+
 
 
 i =np.random.randint(batch_size)
@@ -457,8 +496,54 @@ plt.plot(t1, sto_min[:,i], label="Stock process")
 plt.axhline(y=opt, color='r', linestyle='-', label="Option payoff")
 plt.title("One market realisation at minimal loss epoch")
 plt.legend(loc="center left")
-plt.savefig(path + "OptionPricing/" +name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" +"market.jpg")
+#plt.savefig(path + "OptionPricing/" +name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" +"market.jpg")
 plt.show()
+
+
+
+
+i =np.random.randint(batch_size)
+
+x = stock[:,i]
+K = np.ones(sequence_len)*F
+
+d1 = (np.log(x/K) + (r + 0.5 * volatility**2)*(np.ones(sequence_len)*T - t1))/(volatility*np.sqrt(np.ones(sequence_len)*T - t1))
+
+por = norm.cdf(d1)
+
+ratio = por*x/state[:,i]
+
+
+
+
+
+opt = max(stock[-1,i]-F,0)
+plt.plot(t1,control[:,i],"black",label="Replicating portfolio")
+plt.plot(t1,ratio,color="black", linestyle="--",label="BS replicating portfolio")
+plt.plot(t1, state[:,i], "blue", label="Wealth process")
+plt.plot(t1, stock[:,i], label="Stock process")
+plt.axhline(y=opt, color='r', linestyle='-', label="Option payoff")
+#plt.title("One market realisation at minimal loss epoch")
+plt.legend(loc="center left")
+plt.savefig(path + "OptionPricing/Main/" +name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" +"market.jpg")
+plt.show()
+
+
+def distance():
+    x = torch.tensor(stock)
+    K = torch.ones((sequence_len, batch_size)) * F
+
+    d1 = (torch.log(x / K) + (r + 0.5 * volatility ** 2) * (torch.ones((sequence_len,batch_size)) * T - torch.tensor(t1))) / (
+                volatility * np.sqrt(np.ones((sequence_len, batch_size)) * T - t1))
+
+    por = norm.cdf(d1)
+
+    ratio = torch.tensor(por * x / state)
+    port = torch.tensor(control)
+
+    return torch.norm(ratio - port, dim = 0)
+
+d = distance()
 
 
 control[-1,i,0]
@@ -588,7 +673,7 @@ for i in range(1000):
 print(zav/1000)
 
 ##################################################
-toLoad = "HPP_5_JTruei0.5F0.2d0.2v0.2bs512ep8.0k_"
+toLoad = "Layers2JFalsei1.0F0.5d0.2v0.2bs256ep6.0k_"
 
 
 state = np.array(list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"state.npy")))
@@ -612,7 +697,7 @@ plt.show()
 
 
 
-epochs_number = 8000
+epochs_number = len(losses)
 epochs = np.arange(0,epochs_number,1)
 
 first_n = 200
@@ -626,9 +711,9 @@ plt.savefig(path + "OptionPricing/" + toLoad +"first" +str(first_n) +"initials.j
 plt.show()
 
 
-plt.plot(epochs[:],initials[:])
+plt.plot(epochs[20:],initials[20:])
 plt.axhline(y=option_value, color='r', linestyle='-')
-plt.savefig(path + "OptionPricing/" + toLoad + "initials.jpg")
+plt.savefig(path + "OptionPricing/Main/" + toLoad + "initials.jpg")
 plt.show()
 
 np.mean(initials[-50:])
@@ -638,7 +723,11 @@ plt.title("Loss over " + str(first_n) + " epochs")
 plt.savefig(path + "OptionPricing/" + toLoad + "first" +str(first_n) +"losses.jpg")
 plt.show()
 
-plt.plot(epochs[:],losses[:])
+plt.plot(epochs[20:],losses[20:])
+plt.savefig(path + "OptionPricing/Main/" + toLoad + "losses.jpg")
+plt.show()
+
+plt.plot(epochs[:50],losses[:50])
 plt.savefig(path + "OptionPricing/" + toLoad + "losses.jpg")
 plt.show()
 

@@ -600,7 +600,7 @@ for i in range(1000):
 print(zav/1000)
 
 ##################################################
-toLoad = "Lay2Merton_JTruei1.0F0.5d0.2v0.2bs256ep13.0k_"
+toLoad = "logLay2Merton_JTruei1.0F0.5d0.2v0.2bs256ep14.0k_"
 
 
 state = np.array(list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"state.npy")))
@@ -624,10 +624,16 @@ plt.show()
 
 
 
-epochs_number = 8000
+epochs_number = len(in2)
 epochs = np.arange(0,epochs_number,1)
 
 first_n = 200
+
+plt.plot(epochs[:],initials[:len(in2)])
+plt.plot(epochs[:],in2, color="g")
+plt.axhline(y=option_value, color='r', linestyle='-')
+plt.savefig(path + "OptionPricing/" + toLoad + "initials.jpg")
+plt.show()
 
 
 plt.plot(epochs[:first_n],initials[:first_n])
@@ -658,6 +664,72 @@ np.mean(losses[-50:])
 
 
 abs(option_value - initials[-1])/s0
+
+
+
+
+T = 1
+sequence_len = 100
+dt = T/sequence_len
+t=np.arange(0,T,dt)
+sqrdt = np.sqrt(dt)
+
+t[-1]
+nor = np.random.normal(0,1,sequence_len)
+
+bg = np.zeros(sequence_len)
+for i in range(sequence_len - 1):
+    bg[i + 1] = bg[i] + sqrdt * nor[i]
+
+plt.plot(t, bg)
+plt.show()
+
+
+mu = 0.3
+sigma = 0.2
+s = np.zeros(sequence_len)
+s[0] = 1
+for i in range(sequence_len-1):
+    s[i+1] = s[i] + mu*s[i]*dt + sigma*s[i]*(bg[i+1] - bg[i])
+
+s2 = 1*np.exp((mu-0.5*sigma**2)*t + sigma*bg)
+
+plt.plot(t,s)
+plt.plot(t,s2,color="r")
+plt.show()
+
+
+
+
+
+
+
+
+
+
+
+x = np.zeros(sequence_len)
+x[0] = 0
+int = 0
+x2 = np.zeros(sequence_len)
+x2[0] = 0
+for i in range(sequence_len-1):
+    x[i+1] = x[i] + (sqrdt*nor[i])/(1-t[i])
+    x2[i+1] = x2[i] -x2[i]/(1-t[i])*dt + sqrdt*nor[i]
+x = (1-t)*x
+
+
+y = bg - t*bg[-1]
+
+
+plt.plot(t,x)
+plt.plot(t,y, color="black")
+plt.plot(t,x2, color= "g")
+plt.axhline(y=0,color="r")
+plt.show()
+
+
+
 
 
 

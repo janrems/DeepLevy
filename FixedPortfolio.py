@@ -15,7 +15,7 @@ path = "C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/Graphs/"
 ###############################################################################
 
 #Learning parameters NEEDS TO BE ALWAYS RUN!!!!!!
-batch_size = 256
+batch_size = 10000
 hidden_dim = 512
 fixed_initial = False
 merton_switch = False
@@ -23,7 +23,7 @@ jump_switch = False
 mf_switch = False
 #MODEL PARAMETERS NEEDS TO BE ALWAYS RUN
 T = 1
-sequence_len = 150
+sequence_len = 30
 dt = T/sequence_len
 t1=np.arange(0,T,dt)
 sqrdt = np.sqrt(dt)
@@ -182,11 +182,13 @@ class ControlLSTM(nn.ModuleList):
         if fixed_initial:
             x = input*option_value
             x0 = x
+
         else:
             xtmp = self.fc(input)
            #x = self.activation(xtmp)
             x = xtmp
             x0 = x
+
 
 
         K = torch.ones(self.batch_size, self.dimension) * F
@@ -258,7 +260,7 @@ class ControlLSTM(nn.ModuleList):
 
                         #Different types of the jumps in the compound Poisson process
                         #jumpsize = 1 - (2 * np.random.randint(2))  # uniform {-1,1}
-                        jumpsize = np.random.normal(mu, sigma)   #Merton: lognormal
+                        jumpsize = np.exp(np.random.normal(mu, sigma)) - 1  #Merton: lognormal
                         #jumpsize = 1 #HPP
 
                         tj[indx, bn, dn] += jumpsize
@@ -303,7 +305,7 @@ neg_val = []
 
 
 
-epochs_number = 100
+epochs_number = 1
 
 start = time.time()
 loss_min = 1
@@ -326,34 +328,35 @@ for epoch in range(epochs_number):
         loss = loss2(state,sT)
     else:
         loss = loss3(state,initial,control)
+
     loss.backward()
     optimizer.step()
 
-    losses.append(loss.detach().cpu().numpy())
-    controls.append(torch.mean(control[:,:,0], 1).detach().cpu().numpy())
-    states.append(torch.mean(state[:,0]).detach().cpu().numpy())
-    state_seqs.append(torch.mean(state_seq[:,:,0], 1).detach().cpu().numpy())
-    initials.append(torch.mean(initial[:,0]).detach().cpu().numpy())
-    stock_seqs.append(torch.mean(stock_seq[:,:,0], 1).detach().cpu().numpy())
-
-
-    if loss < loss_min:
-        e_min = epoch
-        l_min= loss
-        con_min = control[:,:,0].detach().cpu().numpy()
-        sta_min = state_seq[:,:,0].detach().cpu().numpy()
-        sto_min = stock_seq[:,:,0].detach().cpu().numpy()
-        in_min = initial[:,0].detach().cpu().numpy()
-        loss_min = loss
-
-
-    ########
-    #check for negative stock values
-
-    ss = stock_seq[:, :, 0].detach().cpu().numpy()
-    sst = ss >= 0
-    pozs = np.sum(np.prod(sst,0))
-    neg_val.append(512-pozs)
+    # losses.append(loss.detach().cpu().numpy())
+    # controls.append(torch.mean(control[:,:,0], 1).detach().cpu().numpy())
+    # states.append(torch.mean(state[:,0]).detach().cpu().numpy())
+    # state_seqs.append(torch.mean(state_seq[:,:,0], 1).detach().cpu().numpy())
+    # initials.append(torch.mean(initial[:,0]).detach().cpu().numpy())
+    # stock_seqs.append(torch.mean(stock_seq[:,:,0], 1).detach().cpu().numpy())
+    #
+    #
+    # if loss < loss_min:
+    #     e_min = epoch
+    #     l_min= loss
+    #     con_min = control[:,:,0].detach().cpu().numpy()
+    #     sta_min = state_seq[:,:,0].detach().cpu().numpy()
+    #     sto_min = stock_seq[:,:,0].detach().cpu().numpy()
+    #     in_min = initial[:,0].detach().cpu().numpy()
+    #     loss_min = loss
+    #
+    #
+    # ########
+    # #check for negative stock values
+    #
+    # ss = stock_seq[:, :, 0].detach().cpu().numpy()
+    # sst = ss >= 0
+    # pozs = np.sum(np.prod(sst,0))
+    # neg_val.append(512-pozs)
 
     ########
 end = time.time()
