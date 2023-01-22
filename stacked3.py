@@ -669,7 +669,7 @@ abs(option_value - initials[-1])/s0
 
 
 T = 1
-sequence_len = 100
+sequence_len = 1000000
 dt = T/sequence_len
 t=np.arange(0,T,dt)
 sqrdt = np.sqrt(dt)
@@ -730,6 +730,27 @@ plt.show()
 
 
 
+#####
+t2 = t[0::100]
+len(t2)
+bg2 = bg[0::100]
+dx = x2[0::100]
+
+ys = y[0::100]
+
+y2 = bg2-t2*bg2[-1]
+
+dx2 = np.zeros(10000)
+for i in range(10000-1):
+    dx2[i + 1] = dx2[i] - dx2[i] / (1 - t[i]) * dt + (bg2[i+1]-bg2[i])
 
 
+plt.plot(t2,dx, color="black")
+plt.plot(t2,dx2, color= "g")
+plt.axhline(y=0,color="r")
+plt.show()
 
+plt.plot(t2,y2, color="black")
+plt.plot(t2,ys, color= "g")
+plt.axhline(y=0,color="r")
+plt.show()
