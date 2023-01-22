@@ -44,7 +44,7 @@ s0 = 1.0
 
 
 #########################################################################################
-#Second brwonian motion
+#Second brwonian motion added
 bm2_switch = True
 volatility2 = 0.3
 batch_size = 512
