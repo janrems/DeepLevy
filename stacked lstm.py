@@ -23,14 +23,14 @@ mf_switch = False
 bm2_switch = False
 #MODEL PARAMETERS NEEDS TO BE ALWAYS RUN
 T = 1
-sequence_len = 30
+sequence_len = 150
 dt = T/sequence_len
 t1=np.arange(0,T,dt)
 sqrdt = np.sqrt(dt)
 
 
 
-drift = -0.2
+drift = 0.2
 drift_orig = drift
 volatility = 0.2
 r = 0
@@ -65,7 +65,7 @@ merton_switch = True
 gamma = 1
 mu = -0.2
 sigma = 0.05
-jump_rate = np.exp(mu + 0.5*sigma**2 ) - 1
+jump_rate = np.exp(mu + 0.5*sigma**2 ) - 1 #k
 drift = drift_orig - rates[0]*jump_rate #TODO: generalisation for multiple dimensions
 
 
@@ -94,11 +94,13 @@ if jump_switch:
     rate2 = rates[0]*(1+jump_rate)
     option_value = 0
     for i in range(80):
-        vol_i = volatility**2 + (i*sigma**2)/T
+        #vol_i = volatility**2 + (i*sigma**2)/T
+        vol_i = np.sqrt(volatility ** 2 + (i * sigma ** 2) / T)
         r_i = - rates[0]*jump_rate + (i*np.log(1+jump_rate))/T
         option_value += BS(s0,F,vol_i,T,r_i)*(np.exp(-rate2*T) * (rate2*T)**i)/(np.math.factorial(i))
 else:
     option_value = BS(s0,F,volatility,T,0)
+
 
 
 ##################################################################################
@@ -202,12 +204,53 @@ def initial_val_bm2(n):
     return torch.mean(f * ZT)
 
 
+def initial_val_mert_orig(n):
+    k = np.exp(mu + 0.5 * sigma ** 2) - 1
+    momen2 = np.exp(2 * mu + sigma ** 2) * (np.exp(sigma ** 2) - 1) + k ** 2
+    G = -drift_orig / (volatility ** 2 + rates[0] * momen2)
+
+    bm = np.sqrt(T)*torch.randn(n)
+    poisson = np.random.poisson(rates[0], n)
+    tjz = []
+    tjs = []
+    for i in poisson:
+        logn = np.exp(np.random.normal(mu,sigma,i))
+        transformedz = np.log(1+G*(logn-1))
+        transformeds = np.log(logn)
+        tjz.append(np.sum(transformedz))
+        tjs.append(np.sum(transformeds))
+
+    tjz = torch.tensor(tjz)
+    tjs = torch.tensor(tjs)
+
+
+
+
+    s = s0*torch.exp((drift - 0.5*volatility**2)*T*torch.ones(n) + volatility*bm + tjs)
+
+    ftmp = torch.ones(n) * F
+    f = torch.max(torch.zeros(n), s - ftmp)
+    # Z*
+
+    if torch.min(tjz) <=-1:
+        return print("G*gamma < -1")
+
+    ZT = torch.exp(-0.5 * ((drift_orig/volatility) ** 2) * T * torch.ones(n) - (drift_orig/volatility) * bm)
+
+    # z hat
+    return torch.mean(f * ZT)
+
+
 op_v = initial_val_bm2(100000000)
 print(op_v)
 
 
 option_value = initial_val_mert(1000000)
 print(option_value)
+
+ovorig = initial_val_mert_orig(1000000)
+print(ovorig)
+
 
 
 
@@ -367,6 +410,9 @@ def loss3(x,x0,out_seq):
     ongoing = torch.mean(integral)
     return start + ongoing + terminal
 
+
+
+
 ########################################################################
 name = "Layers2J"
 name = "Layers2bm2"
@@ -385,9 +431,10 @@ initials = []
 stock_seqs = []
 neg_val = []
 
+st_seq = []
+xt_seq = []
 
-
-epochs_number = 3000
+epochs_number = 10
 start = time.time()
 loss_min = 1
 for epoch in range(epochs_number):
@@ -429,6 +476,9 @@ for epoch in range(epochs_number):
     initials = np.append(initials, torch.mean(initial[:,0]).detach().cpu().numpy())
     stock_seqs.append(torch.mean(stock_seq[:,:,0], 1).detach().cpu().numpy())
 
+
+    st_seq.append(sT)
+    xt_seq.append(state)
 
     if (loss < loss_min) and (epoch%50==0):
         e_min = epoch
@@ -473,6 +523,7 @@ for epoch in range(epochs_number):
             s0) + "s" + str(F) + "d" + str(drift_orig) + "v" + str(volatility) + "bs" + str(batch_size) + "ep" + str(
             epochs_number / 1000) + "k_model")
 
+
     ########
 end = time.time()
 
@@ -510,7 +561,7 @@ np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_sw
 torch.save(net.state_dict(), "C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift_orig) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_model_dic")
 torch.save(net, "C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str(jump_switch)+"i"+str(s0) +"s" +str(F)+"d"+str(drift_orig) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_model")
 
-net = torch.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/JFalsei1.0s0.5d0.3v0.2bs512ep12.0k_model")
+net = torch.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/Layers2JTruei1.0s0.5d0.2v0.2bs256ep5.0k_model")
 ###################################################################################
 
 epochs = np.arange(0,epochs_number,1)
@@ -732,7 +783,7 @@ for i in range(1000):
 print(zav/1000)
 
 ##################################################
-toLoad = "Layers2bm2Falsei1.0F0.5d-0.2v0.2bs512ep3.0k_"
+toLoad = "Layers2JTruei1.0F0.5d0.2v0.2bs256ep5.0k_"
 
 
 state = np.array(list(np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/" + toLoad +"state.npy")))
@@ -751,8 +802,60 @@ plt.plot(t1, stock[:,i],label="Stock process")
 plt.axhline(y=opt, color='r', linestyle='-', label = "Option payoff")
 #plt.title("One market realisation at minimal loss epoch")
 plt.legend(loc="upper left")
-plt.savefig(path + "OptionPricing/Main/" + toLoad + "market.jpg")
+#plt.savefig(path + "OptionPricing/Main/" + toLoad + "market.jpg")
 plt.show()
+
+########################################################
+
+
+
+
+#error distribution
+xt = state[-1,:]
+st = stock[-1,:]
+k = np.ones(batch_size)*F
+f = np.maximum.reduce([np.zeros(batch_size),st-k])
+
+err = xt-f
+plt.hist(err, bins=np.linspace(-0.1,0.1,30))
+plt.show()
+
+j = np.argmax(st-F)
+np.max(-err)
+
+
+err3 = (xt-f)**2
+np.average(err3)
+
+
+############################################
+#direct from the loop
+xts = torch.reshape(xt_seq[0],(-1,))
+sts =torch.reshape(st_seq[0],(-1,))
+
+for i in range(len(xt_seq)):
+    if i != 0:
+
+        xts = torch.cat((xts,torch.reshape(xt_seq[i],(-1,))))
+        sts = torch.cat((sts,torch.reshape(st_seq[i],(-1,))))
+
+xts = xts.detach().cpu().numpy()
+sts = sts.detach().cpu().numpy()
+
+l = len(xts)
+k = np.ones(l)*F
+f = np.maximum.reduce([np.zeros(l),sts-k])
+
+err = xts-f
+plt.hist(err, bins=np.linspace(-0.5,0.5,30))
+plt.show()
+
+np.max(err)
+np.argmax(err)
+########################################################
+
+
+
 
 
 
@@ -849,14 +952,50 @@ plt.show()
 
 
 
+###########
+#Compare Z*, Z^M
+
+time = torch.arange(0,1,sequence_len)
+
+brow = torch.randn(sequence_len, batch_size)
+
+poiss = torch.zeros(sequence_len, batch_size)
+
+k = np.exp(mu + 0.5 * sigma ** 2) - 1
+momen2 = np.exp(2 * mu + sigma ** 2) * (np.exp(sigma ** 2) - 1) + k ** 2
+G = -drift_orig / (volatility ** 2 + rates[0] * momen2)
+
+for bn in range(batch_size):
+    cum_time = np.random.exponential(1 / rates[0])
+    while (cum_time < T):
+        indx = int(cum_time / dt)
+
+        #Different types of the jumps in the compound Poisson process
+        #jumpsize = 1 - (2 * np.random.randint(2))  # uniform {-1,1}
+        #jumpsize = np.random.normal(mu, sigma)   #Merton: normal
+        jumpsize = np.exp(np.random.normal(mu, sigma)) - 1 #Merton: lognormal
+        #jumpsize = 1 #HPP
+
+        poiss[indx, bn] += jumpsize
+
+        cum_time += np.random.exponential(1 / rates[0])
 
 
 
+Zs = torch.ones(sequence_len, batch_size)
+Zm = torch.ones(sequence_len, batch_size)
+# for every timestep use input x[t] to compute control out from hiden state h1 and derive the next imput x[t+1]
+for t in range(sequence_len-1):
+    Zm[t+1] = Zm[t] + Zm[t] *(-drift_orig/volatility * sqrdt * brow[t])
+    Zs[t+1] = Zs[t] + Zs[t] * (-G*rates[0]*k * dt + G*volatility * sqrdt * brow[t] + G*poiss[t])
 
 
 
-
-
+i = np.random.randint(batch_size)
+plt.plot(t1, Zs[:,i].detach().cpu().numpy(), "blue", label= r'$Z^*$')
+plt.plot(t1, Zm[:,i].detach().cpu().numpy(), "red", label=r'$Z^M$')
+plt.legend(loc="upper left")
+plt.show()
 
 
 
