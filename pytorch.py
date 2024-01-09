@@ -10,7 +10,7 @@ torch.manual_seed(1)
 T = 1
 sequence_len = 30
 dt = T/sequence_len
-t1=np.arange(0,T,dt)
+t1=np.linspace(0,T,sequence_len)
 sqrdt = np.sqrt(dt)
 drift = 0.05
 volatility = 0.3

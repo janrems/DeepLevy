@@ -30,7 +30,7 @@ sqrdt = np.sqrt(dt)
 
 
 
-drift = 0.3
+drift = 0.2
 drift_orig = drift
 volatility = 0.2
 r = 0
@@ -81,7 +81,7 @@ mf_switch = True
 ####################################################################################
 # ANALYTIC RESULT
 
-def BS(initial, strike, vol, terminal, rate):
+def BS(initial, strike, vol, terminal,rate):
     d1 = (1/(vol*np.sqrt(terminal)))*(np.log(initial/strike) + terminal*(rate+0.5*vol**2))
     d2 = d1- vol*np.sqrt(terminal)
     call = norm.cdf(d1)*initial - norm.cdf(d2)*strike*np.exp(-rate*terminal)
@@ -94,6 +94,7 @@ if jump_switch:
     rate2 = rates[0]*(1+jump_rate)
     option_value = 0
     for i in range(80):
+        #vol_i = volatility**2 + (i*sigma**2)/T
         vol_i = np.sqrt(volatility ** 2 + (i * sigma ** 2) / T)
         r_i = - rates[0]*jump_rate + (i*np.log(1+jump_rate))/T
         option_value += BS(s0,F,vol_i,T,r_i)*(np.exp(-rate2*T) * (rate2*T)**i)/(np.math.factorial(i))
@@ -244,13 +245,7 @@ op_v = initial_val_bm2(100000000)
 print(op_v)
 
 
-
-start = time.time()
-option_value = initial_val_mert(500000)
-end = time.time()
-
-
-
+option_value = initial_val_mert(1000000)
 print(option_value)
 
 ovorig = initial_val_mert_orig(1000000)
@@ -331,13 +326,13 @@ class ControlLSTM(nn.ModuleList):
             if t < self.sequence_len - 1:
                 if mf_switch == False:
                     if bm2_switch == False:
-                        dx, ds = glp(x,s,out,t)
+                        s = s0 * torch.exp((drift - 0.5 * volatility ** 2) * (t + 1) * dt * torch.ones(batch_size,1) + volatility * w[t + 1,:,:] + tj[t + 1,:,:])
+                        x = x0 * torch.exp(out * (drift - 0.5 * volatility ** 2) * (t + 1) * dt * torch.ones(batch_size,1) + out * volatility * w[t + 1,:,:] + out * tj[t + 1,:,:])
                     else:
                         dx,ds = gbm2(x,s,out,t)
                 else:
                     dx, ds = mf(x,out,t,self.batch_size, self.dimension)
-                x = x + dx
-                s = s + ds
+
                 input_seq[t+1] = x
                 stock_seq[t+1] = s
         # return the output and state sequence
@@ -362,7 +357,7 @@ class ControlLSTM(nn.ModuleList):
                 torch.rand(self.batch_size, self.hidden_dim))
 
     def init_brownian(self):
-        return torch.randn(self.sequence_len, self.batch_size, self.dimension)
+        return torch.cumsum(torch.randn(self.sequence_len, self.batch_size, self.dimension)*sqrdt,dim=0)
 
 
     def init_jumpTimes(self):
@@ -378,8 +373,8 @@ class ControlLSTM(nn.ModuleList):
 
                         #Different types of the jumps in the compound Poisson process
                         #jumpsize = 1 - (2 * np.random.randint(2))  # uniform {-1,1}
-                        #jumpsize = np.random.normal(mu, sigma)   #Merton: normal
-                        jumpsize = np.exp(np.random.normal(mu, sigma)) - 1 #Merton: lognormal
+                        jumpsize = np.random.normal(mu, sigma)   #Merton: normal
+                        #jumpsize = np.exp(np.random.normal(mu, sigma)) - 1 #Merton: lognormal
                         #jumpsize = 1 #HPP
 
                         tj[indx, bn, dn] += jumpsize
@@ -387,7 +382,7 @@ class ControlLSTM(nn.ModuleList):
                         cum_time += np.random.exponential(1 / rates[dn])
         if bm2_switch:
             tj = torch.randn(self.sequence_len, self.batch_size, self.dimension)
-        return tj
+        return torch.cumsum(tj,dim=0)
 
 
 #computes the loss E[1/2 (X_T - F)^2]
@@ -419,9 +414,8 @@ def loss3(x,x0,out_seq):
 
 
 ########################################################################
-name = "Layers2J"
+name = "solLayers2J"
 name = "Layers2bm2"
-name="BSretest"
 
 
 
@@ -571,11 +565,17 @@ torch.save(net, "C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+name+str
 net = torch.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/Layers2JTruei1.0s0.5d0.2v0.2bs256ep5.0k_model")
 ###################################################################################
 
-epochs = np.arange(0,epochs_number,1)
+epochs = np.arange(0,len(losses),1)
 
 epochs = np.arange(0,len(initials),1)
 plt.plot(epochs[:],initials[:])
 plt.axhline(y=op_v, color='r', linestyle='-')
+plt.show()
+
+
+epochs = np.arange(0,len(initials),1)
+plt.plot(epochs[:],initials[:])
+plt.axhline(y=option_value, color='r', linestyle='-')
 plt.show()
 
 
@@ -636,7 +636,7 @@ ratio = por*x/state[:,i]
 i =np.random.randint(batch_size)
 opt = max(stock[-1,i]-F,0)
 plt.plot(t1,control[:,i],"black",label="Replicating portfolio")
-plt.plot(t1,ratio,color="black", linestyle="--",label="BS replicating portfolio")
+#plt.plot(t1,ratio,color="black", linestyle="--",label="BS replicating portfolio")
 plt.plot(t1, state[:,i], "blue", label="Wealth process")
 plt.plot(t1, stock[:,i], label="Stock process")
 plt.axhline(y=opt, color='r', linestyle='-', label="Option payoff")
@@ -854,10 +854,7 @@ k = np.ones(l)*F
 f = np.maximum.reduce([np.zeros(l),sts-k])
 
 err = xts-f
-plt.hist(err, bins=np.linspace(-0.1,0.1,30), alpha=0.5, label="Our approach")
-plt.hist(err3, bins=np.linspace(-0.1,0.1,30), alpha=0.5,label="Merton")
-plt.legend(loc='upper right')
-plt.savefig(path + "OptionPricing/Main/" +name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" +"lossdist.jpg")
+plt.hist(err, bins=np.linspace(-0.5,0.5,30))
 plt.show()
 
 np.max(err)
@@ -1002,316 +999,10 @@ for t in range(sequence_len-1):
 
 
 i = np.random.randint(batch_size)
-
 plt.plot(t1, Zs[:,i].detach().cpu().numpy(), "blue", label= r'$Z^*$')
 plt.plot(t1, Zm[:,i].detach().cpu().numpy(), "red", label=r'$Z^M$')
-plt.legend(loc="upper right")
-plt.savefig(path + "OptionPricing/Main/" +name+str(jump_switch)+"i"+str(s0) +"F" +str(F)+"d"+str(drift) +"v" + str(volatility) +"bs" + str(batch_size) +"ep" + str(epochs_number/1000)+"k_" +"Zs.jpg")
+plt.legend(loc="upper left")
 plt.show()
-
-
-############################################################
-
-
-def merOp(rate,mean,sd,vol):
-    k = np.exp(mean + 0.5 * sd ** 2) - 1
-    rate2 = rate * (1 + k)
-    option_value = 0
-    for i in range(80):
-        # vol_i = volatility**2 + (i*sigma**2)/T
-        vol_i = np.sqrt(vol ** 2 + (i * sd ** 2) / T)
-        r_i = - rate * k + (i * np.log(1 + k)) / T
-        option_value += BS(s0, F, vol_i, T, r_i) * (np.exp(-rate2 * T) * (rate2 * T) ** i) / (np.math.factorial(i))
-
-    return option_value
-
-
-def ourOp(n,rate,mean,sd,vol):
-    k = np.exp(mean + 0.5 * sd ** 2) - 1
-    momen2 = np.exp(2 * mean + sd ** 2) * (np.exp(sd ** 2) - 1) + k ** 2
-    G = -drift_orig / (vol ** 2 + rate * momen2)
-
-
-    bm = np.sqrt(T)*torch.randn(n)
-    poisson = np.random.poisson(T*rate, n)
-    tjz = []
-    tjs = []
-    for i in poisson:
-        logn = np.exp(np.random.normal(mean,sd,i))
-        transformedz = np.log(1+G*(logn-1))
-        transformeds = np.log(logn)
-        tjz.append(np.sum(transformedz))
-        tjs.append(np.sum(transformeds))
-
-    tjz = torch.tensor(tjz)
-    tjs = torch.tensor(tjs)
-
-
-
-
-    s = s0*torch.exp(((drift_orig - k* rate) - 0.5*vol**2)*T*torch.ones(n) + vol*bm + tjs)
-
-    ftmp = torch.ones(n) * F
-    f = torch.max(torch.zeros(n), s - ftmp)
-    # Z*
-
-    if torch.min(tjz) <=-1:
-        return print("G*gamma < -1")
-
-    ZT = torch.exp((-0.5 * (vol ** 2) * G ** 2 - rate * G * k) * T * torch.ones(n) + G * vol * bm +  tjz)
-
-    # z hat
-    op_val = torch.mean(f * ZT)
-    return op_val.detach().cpu().numpy()
-
-
-
-n_points = 21
-
-lambdas = np.linspace(0,10,n_points)
-
-mus = np.linspace(-0.5,-0.1, n_points)
-
-sds = np.linspace(0,0.1, n_points)
-
-vols = np.linspace(0,0.4, n_points)
-
-
-
-mer_op = []
-
-our_op = []
-
-
-mer_op_m = []
-
-our_op_m = []
-
-
-mer_op_s = []
-
-our_op_s = []
-
-
-mer_op_v = []
-
-our_op_v = []
-
-
-
-
-for l in lambdas2:
-    mer_op.append(merOp(l,mu, sigma,volatility))
-    our_op.append(ourOp(500000,l,mu,sigma,volatility))
-
-
-
-for m in mus:
-    mer_op_m.append(merOp(rates[0],m, sigma,volatility))
-    our_op_m.append(ourOp(1000000,rates[0],m,sigma,volatility))
-
-
-for s in sds:
-    mer_op_s.append(merOp(rates[0],mu, s,volatility))
-    our_op_s.append(ourOp(500000,rates[0],mu,s,volatility))
-
-
-for v in vols:
-    mer_op_v.append(merOp(rates[0],mu, sigma, v))
-    our_op_v.append(ourOp(500000,rates[0],mu,sigma,v))
-
-
-
-
-plt.plot(lambdas2,mer_op,color="green")
-plt.plot(lambdas2,our_op)
-plt.show()
-
-
-plt.plot(mus,mer_op_m,color="green")
-plt.plot(mus,our_op_m)
-plt.show()
-
-
-plt.plot(sds,mer_op_s,color="green")
-plt.plot(sds,our_op_s)
-plt.show()
-
-
-plt.plot(vols,mer_op_v,color="green")
-plt.plot(vols,our_op_v)
-plt.show()
-
-
-
-start = time.time()
-ourOp(1000000,rates[0],mu,sigma,volatility)
-end = time.time()
-cas = end-start
-
-
-
-def lam_mu(n,s,v):
-    lams, ms = np.meshgrid(lambdas, mus)
-    p_m = np.zeros((n_points,n_points))
-    p_o = np.zeros((n_points,n_points))
-    i = 0
-    for m in mus:
-        print(m)
-        j=0
-        for l in lambdas:
-            p_m[i,j] = merOp(l,m,s,v)
-            p_o[i,j] = ourOp(n,l,m,s,v)
-            j+=1
-        i+=1
-
-    return lams,ms,p_m,p_o
-
-ls,ms,p_m_lm,p_o_lm = lam_mu(1000000,sigma,volatility)
-
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"prices"+"_drift"+str(drift_orig) +"v" + str(volatility) +"sigma" + str(sigma) +"lm_merton",p_m_lm)
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"prices"+"_drift"+str(drift_orig) +"v" + str(volatility) +"sigma" + str(sigma) +"lm_our",p_o_lm)
-
-ls,ms = np.meshgrid(lambdas, mus)
-
-
-def vol_sig(n,l,m):
-    vs, ss = np.meshgrid(vols, sds)
-    p_m = np.zeros((n_points,n_points))
-    p_o = np.zeros((n_points,n_points))
-    i = 0
-    for v in vols:
-        print(v)
-        j=0
-        for s in sds:
-            p_m[i,j] = merOp(l,m,s,v)
-            p_o[i,j] = ourOp(n,l,m,s,v)
-            j+=1
-        i+=1
-
-    return vs,ss,p_m,p_o
-
-vs,ss,p_m_vs,p_o_vs = vol_sig(1000000,rates[0],mu)
-
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"prices"+"_drift"+str(drift_orig) +"l" + str(rates[0]) +"mu" + str(mu) +"vs_merton",p_m_vs)
-np.save("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/"+"prices"+"_drift"+str(drift_orig) +"v" + str(volatility) +"sigma" + str(sigma) +"vs_our",p_o_vs)
-
-
-p_m_lm = np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/prices_drift0.2v0.2sigma0.05lm_merton.npy")
-p_o_lm = np.load("C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/data/prices_drift0.2v0.2sigma0.05lm_our.npy")
-
-
-max_cases_lm = np.maximum(p_m_lm, p_o_lm)
-max_cases_vs = np.maximum(p_m_vs, p_o_vs)
-max_lm = np.max(max_cases_lm)
-max_vs = np.max(max_cases_vs)
-
-min_cases_lm = np.minimum(p_m_lm, p_o_lm)
-min_cases_vs = np.minimum(p_m_vs, p_o_vs)
-min_lm = np.min(min_cases_lm)
-min_vs = np.min(min_cases_vs)
-#####################################
-p_m2 = p_m_lm[:-1, :-1]
-
-fig, ax = plt.subplots()
-
-c = ax.pcolormesh(ls, ms, p_m2, cmap='RdBu', vmin=min_lm, vmax=max_lm)
-
-# set the limits of the plot to the limits of the data
-ax.axis([ls.min(), ls.max(), ms.min(), ms.max()])
-ax.set_xlabel(r'$\lambda$', fontsize=14)
-ax.set_ylabel(r'$\mu$',fontsize=14)
-plt.savefig(path + "OptionPricing/Main/Prices_M_lm.jpg")
-fig.colorbar(c, ax=ax)
-
-plt.show()
-##############
-
-p_o2 = p_o_lm[:-1, :-1]
-
-fig, ax = plt.subplots()
-
-c = ax.pcolormesh(ls, ms, p_o2, cmap='RdBu', vmin=min_lm, vmax=max_lm)
-
-# set the limits of the plot to the limits of the data
-ax.axis([ls.min(), ls.max(), ms.min(), ms.max()])
-ax.set_xlabel(r'$\lambda$', fontsize=14)
-ax.set_ylabel(r'$\mu$',fontsize=14)
-fig.colorbar(c, ax=ax)
-plt.savefig(path + "OptionPricing/Main/Prices_O_lm.jpg")
-plt.show()
-
-###########
-
-diflm = p_o_lm[:-1, :-1] - p_m_lm[:-1,:-1]
-
-diflm_min, diflm_max = np.min(diflm), np.max(diflm)
-
-fig, ax = plt.subplots()
-
-c = ax.pcolormesh(ls, ms, diflm, cmap='RdBu', vmin=diflm_min, vmax=diflm_max)
-
-# set the limits of the plot to the limits of the data
-ax.axis([ls.min(), ls.max(), ms.min(), ms.max()])
-ax.set_xlabel(r'$\lambda$', fontsize=14)
-ax.set_ylabel(r'$\mu$',fontsize=14)
-fig.colorbar(c, ax=ax)
-plt.savefig(path + "OptionPricing/Main/Prices_dif_lm.jpg")
-plt.show()
-
-#############################################################################
-
-p_m3 = p_m_vs[:-1, :-1]
-
-fig, ax = plt.subplots()
-
-c = ax.pcolormesh(ss, vs, p_m3, cmap='RdBu', vmin=min_vs, vmax=max_vs)
-
-# set the limits of the plot to the limits of the data
-ax.axis([ss.min(), ss.max(), vs.min(), vs.max()])
-ax.set_xlabel(r'$\delta$', fontsize=14)
-ax.set_ylabel(r'$\sigma$',fontsize=14)
-fig.colorbar(c, ax=ax)
-plt.savefig(path + "OptionPricing/Main/Prices_M_vs.jpg")
-plt.show()
-##############
-
-p_o3 = p_o_vs[:-1, :-1]
-
-fig, ax = plt.subplots()
-
-c = ax.pcolormesh(ss, vs, p_o3, cmap='RdBu', vmin=min_vs, vmax=max_vs)
-
-# set the limits of the plot to the limits of the data
-ax.axis([ss.min(), ss.max(), vs.min(), vs.max()])
-ax.set_xlabel(r'$\delta$', fontsize=14)
-ax.set_ylabel(r'$\sigma$',fontsize=14)
-fig.colorbar(c, ax=ax)
-plt.savefig(path + "OptionPricing/Main/Prices_O_vs.jpg")
-plt.show()
-
-###########
-
-difvs = p_o_vs[:-1, :-1] - p_m_vs[:-1,:-1]
-
-difvs_min, difvs_max = np.min(difvs), np.max(difvs)
-
-fig, ax = plt.subplots()
-
-c = ax.pcolormesh(ss, vs, difvs, cmap='RdBu', vmin=difvs_min, vmax=difvs_max)
-
-# set the limits of the plot to the limits of the data
-ax.axis([ss.min(), ss.max(), vs.min(), vs.max()])
-ax.set_xlabel(r'$\delta$', fontsize=14)
-ax.set_ylabel(r'$\sigma$',fontsize=14)
-fig.colorbar(c, ax=ax)
-plt.savefig(path + "OptionPricing/Main/Prices_dif_vs.jpg")
-plt.show()
-
-
-
-
-
 
 
 

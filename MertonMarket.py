@@ -15,7 +15,7 @@ path = "C:/Users/jan1r/Documents/Faks/Doktorat/DeepLevy/Graphs/"
 ###############################################################################
 
 #Learning parameters NEEDS TO BE ALWAYS RUN!!!!!!
-batch_size = 256
+batch_size = 1000
 hidden_dim = 512
 fixed_initial = False
 merton_switch = False
@@ -85,17 +85,21 @@ def glp(x,s,out,t):
     return dx, ds
 
 
-w = torch.randn(sequence_len, batch_size)
+w = torch.randn(sequence_len, batch_size,1)
 
-tj = torch.zeros(sequence_len, batch_size)
+tj = torch.zeros(sequence_len, batch_size,1)
+
+tj2 = torch.zeros(sequence_len, batch_size,1)
 
 for bn in range(batch_size):
     cum_time = np.random.exponential(1 / rates[0])
     while (cum_time < T):
         indx = int(cum_time / dt)
-        jumpsize = np.exp(np.random.normal(mu, sigma)) - 1  # Merton: lognormal
+        jtmp = np.random.normal(mu, sigma)
+        jumpsize = np.exp(jtmp) - 1  # Merton: lognormal
 
         tj[indx, bn] += jumpsize
+        tj2[indx,bn] += jtmp
         cum_time += np.random.exponential(1 / rates[0])
 
 output_seqM = torch.empty((sequence_len,batch_size,1))
@@ -104,17 +108,29 @@ input_seqM = torch.empty((sequence_len,batch_size,1))
 
 stock_seqM = torch.empty((sequence_len,batch_size,1))
 
+input_seqM2 = torch.empty((sequence_len,batch_size,1))
+
+stock_seqM2 = torch.empty((sequence_len,batch_size,1))
 
 x = torch.ones(batch_size,1)*option_value
 x0 = x
+
+y = torch.ones(batch_size,1)*option_value
+y0 = y
 
 
 
 K = torch.ones(batch_size,1)*F
 
 s = torch.ones(batch_size,1) * s0
+
+s2 = torch.ones(batch_size,1) * s0
+
 stock_seqM[0] = s
 input_seqM[0] = x
+
+stock_seqM2[0] = s2
+input_seqM2[0] = y
 
 # for every timestep use input x[t] to compute control out from hiden state h1 and derive the next imput x[t+1]
 for t in range(sequence_len):
@@ -128,35 +144,51 @@ for t in range(sequence_len):
     por = n.cdf(d1)
     #print("por= " + str(por[0,0]))
     out = por*s/x
+    #out = s/x
 
     output_seqM[t] = out
     if t < sequence_len - 1:
         dx, ds = glp(x,s,out,t)
         x = x + dx
         s = s + ds
+
         input_seqM[t+1] = x
         stock_seqM[t+1] = s
+
+        ###########################################
+        #using the solution
+        w_cum = torch.cumsum(w*sqrdt,dim=0)
+        tj_cum = torch.cumsum(tj2, dim=0)
+        s2 = s0*np.exp((drift - 0.5*volatility**2)*(t+1)*dt*torch.ones(batch_size,1) + volatility*w_cum[t+1,:,:] + tj_cum[t+1,:,:])
+        y  = y0*np.exp(out*(drift - 0.5*volatility**2)*(t+1)*dt*torch.ones(batch_size,1) + out*volatility*w_cum[t+1,:,:] + out*tj_cum[t+1,:,:])
+
+        input_seqM2[t + 1] = y
+        stock_seqM2[t + 1] = s2
 # return the output and state sequence
 
 
 
 i =np.random.randint(batch_size)
-opt = max(stock_seq[-1,i]-F,0)
-plt.plot(t1,output_seqM[:,i],"black")
+opt = max(stock_seqM[-1,i]-F,0)
+plt.plot(t1,output_seqM[:,i,0],"black")
 plt.plot(t1, input_seqM[:,i], "blue")
-plt.plot(t1, stock_seqM[:,i])
+plt.plot(t1, stock_seqM[:,i,0])
+#plt.plot(t1, input_seqM2[:,i], "green")
+#plt.plot(t1, stock_seqM2[:,i,0],"brown")
+#plt.plot(t1,w_cum[:,i,0])
+#plt.plot(t1,tj_cum[:,i,0])
 plt.axhline(y=opt, color='r', linestyle='-')
 plt.title("sdsad")
 plt.show()
 
 
-it = input_seq[-1,:].detach().cpu().numpy()
-stt = stock_seq[-1,:].detach().cpu().numpy()
-k = np.ones(batch_size)*F
-f = np.maximum.reduce([np.zeros(batch_size),stt-k])
+it = input_seqM[-1,:,0].detach().cpu().numpy()
+stt = stock_seqM[-1,:,0].detach().cpu().numpy()
+k = np.ones(1000)*F
+f = np.maximum.reduce([np.zeros(1000),stt-k])
 
-err = it-f
-plt.hist(err, bins=np.linspace(-0.1,0.1,30))
+err3 = it-f
+plt.hist(err3, bins=np.linspace(-0.1,0.1,30))
 plt.show()
 
 err2 = (it-f)**2

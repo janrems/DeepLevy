@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 #Parametri particije
 T = 1
-sequence_len = 10000000
+sequence_len = 50
 dt = T/sequence_len
 t=np.arange(0,T,dt)
 sqrdt = np.sqrt(dt)
@@ -66,7 +66,7 @@ y = bg - t*bg[-1]
 #Pozor: grafa za x in x2 se za grobo diskretizacijo (majhen sequence_len) razlikujeta od grafa y.
 # Razlika se povečuje s pretečenim časom
 
-plt.plot(t,x)
+plt.plot(t,x, "blue")
 plt.plot(t,y, color="black")
 plt.plot(t,x2, color= "g")
 plt.axhline(y=0,color="r")
