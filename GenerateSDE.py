@@ -8,6 +8,7 @@ sequence_len = 50
 dt = T/sequence_len
 t=np.arange(0,T,dt)
 sqrdt = np.sqrt(dt)
+print(T)
 
 #Generiramo standardno normalne s.s., ki nam dajo Brownovo gibanje
 nor = np.random.normal(0,1,sequence_len)
